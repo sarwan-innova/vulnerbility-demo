@@ -64,7 +64,7 @@ def start_scan(image):
     if wiz_source.WIZ_MOCK:
         scan = scanner.run_mock(scan)
     else:
-        scan["mode"] = "wizcli"
+        scan["mode"] = ci.SCANNER if ci.SCANNER in ci.CODEBUILD_SCANNERS else "wizcli"
         env = scanner.live_env(scan)
         build = _codebuild().start_build(
             projectName=SCAN_PROJECT,

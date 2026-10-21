@@ -74,6 +74,46 @@ def _wizscan_buildspec():
     }
 
 
+TRIVY_VERSION = "0.76.0"
+TRIVY_TGZ = f"trivy_{TRIVY_VERSION}_Linux-64bit.tar.gz"
+TRIVY_RELEASE = f"https://github.com/aquasecurity/trivy/releases/download/v{TRIVY_VERSION}"
+
+
+def _trivyscan_buildspec():
+    """scanner=trivy: same contract as the wizcli scan (IMAGE_URI in, results.json
+    + sbom.cdx.json out) with no account-wide scanning change. Pinned Trivy
+    release, verified against its published checksums; base-image layers split
+    base vs app findings; fixer/convert_trivy.py writes the wizcli shape."""
+    return {
+        "version": "0.2",
+        "phases": {
+            "install": {"commands": [
+                f'curl -fsSLO "{TRIVY_RELEASE}/{TRIVY_TGZ}"',
+                f'curl -fsSLO "{TRIVY_RELEASE}/trivy_{TRIVY_VERSION}_checksums.txt"',
+                f'grep " {TRIVY_TGZ}$" trivy_{TRIVY_VERSION}_checksums.txt | sha256sum -c -',
+                f'tar -xzf {TRIVY_TGZ} -C /usr/local/bin trivy',
+            ]},
+            "build": {"commands": [
+                'REGISTRY="${IMAGE_URI%%/*}"',
+                ECR_LOGIN,
+                'docker pull "$IMAGE_URI"',
+                'BASE="$(docker image inspect "$IMAGE_URI" --format '
+                '\'{{ index .Config.Labels "org.opencontainers.image.base.name" }}\')"',
+                'if [ -n "$BASE" ] && [ "$BASE" != "<no value>" ] && docker pull "$BASE"; then '
+                'docker image inspect "$BASE" --format \'{{json .RootFS.Layers}}\' > base_layers.json; '
+                'else echo "[]" > base_layers.json; fi',
+                'aws s3 cp "$TOOLING_S3" tooling/ --recursive',
+                'trivy image --quiet --scanners vuln --ignore-unfixed --format json '
+                '--output trivy.json "$IMAGE_URI"',
+                'trivy image --quiet --format cyclonedx --output sbom.cdx.json "$IMAGE_URI"',
+                'python3 tooling/convert_trivy.py trivy.json base_layers.json "$BASE" results.json',
+                'aws s3 cp results.json "$OUTPUT_PREFIX/results.json"',
+                'aws s3 cp sbom.cdx.json "$OUTPUT_PREFIX/sbom.cdx.json"',
+            ]},
+        },
+    }
+
+
 def _fixbuild_buildspec():
     """Clone the app repo, apply the fix spec, build + push the fixed image.
     Everything is in one phase so a failed step never reaches `docker push`."""
@@ -159,9 +199,13 @@ class PromotionStack(Stack):
             table.grant_read_write_data(f)
             return f
 
-        # ---------- CodeBuild: wizcli scan (Scan now + verify re-scan) ----------
-        wizscan_env = {"AWS_REGION": codebuild.BuildEnvironmentVariable(value=self.region)}
-        if wiz_secret is not None and not wiz_mock:
+        # ---------- CodeBuild: image scan (Scan now + verify re-scan + CI) ----------
+        # wizcli by default; Trivy when the CI loop runs with scanner=trivy
+        use_trivy = (ci_loop or {}).get("scanner") == "trivy"
+        tooling_s3 = (f"s3://{report_bucket.bucket_name}/tooling/" if report_bucket is not None else "")
+        wizscan_env = {"AWS_REGION": codebuild.BuildEnvironmentVariable(value=self.region),
+                       "TOOLING_S3": codebuild.BuildEnvironmentVariable(value=tooling_s3)}
+        if wiz_secret is not None and not wiz_mock and not use_trivy:
             for var, field in (("WIZ_CLIENT_ID", "client_id"), ("WIZ_CLIENT_SECRET", "client_secret")):
                 wizscan_env[var] = codebuild.BuildEnvironmentVariable(
                     type=codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER,
@@ -169,7 +213,8 @@ class PromotionStack(Stack):
         wizscan_project = codebuild.Project(
             self, "WizScanProject",
             project_name=f"{prefix}-wizscan",
-            build_spec=codebuild.BuildSpec.from_object(_wizscan_buildspec()),
+            build_spec=codebuild.BuildSpec.from_object(
+                _trivyscan_buildspec() if use_trivy else _wizscan_buildspec()),
             environment=codebuild.BuildEnvironment(
                 build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
                 privileged=True,  # docker pull for wizcli docker scan
@@ -181,7 +226,6 @@ class PromotionStack(Stack):
         # ---------- CodeBuild: apply the fix spec + build the fixed image ----------
         git_secret = secrets.Secret(self, "GitSecret", secret_name=f"{prefix}/git",
                                     description='{"token": "<PAT>"} for cloning app repos')
-        tooling_s3 = (f"s3://{report_bucket.bucket_name}/tooling/" if report_bucket is not None else "")
         fixbuild_project = codebuild.Project(
             self, "FixBuildProject",
             project_name=f"{prefix}-fixbuild",
@@ -216,14 +260,17 @@ class PromotionStack(Stack):
             wiz_secret.grant_read(wizscan_project)
         if report_bucket is not None:
             report_bucket.grant_put(wizscan_project)
+            report_bucket.grant_read(wizscan_project)     # tooling/ (Trivy converter)
             report_bucket.grant_read(fixbuild_project)
-            # ship the fixer + fix engine the build runs (same code the tests cover)
-            with open(os.path.join(COMMON_PATH, "fix_engine.py"), encoding="utf-8") as fh:
-                fix_engine_src = fh.read()
+            # ship the fixer, fix engine and Trivy converter the builds run
+            # (the same code the tests cover)
+            shared = []
+            for name in ("fix_engine.py", "trivy_adapter.py"):
+                with open(os.path.join(COMMON_PATH, name), encoding="utf-8") as fh:
+                    shared.append(s3deploy.Source.data(name, fh.read()))
             s3deploy.BucketDeployment(
                 self, "DeployFixerTooling",
-                sources=[s3deploy.Source.asset("fixer"),
-                         s3deploy.Source.data("fix_engine.py", fix_engine_src)],
+                sources=[s3deploy.Source.asset("fixer"), *shared],
                 destination_bucket=report_bucket,
                 destination_key_prefix="tooling/",
                 prune=False,

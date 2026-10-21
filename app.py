@@ -95,8 +95,9 @@ if github_repo:
         "ecr_repo": _flag("app_ecr_repo", "demo/vuln-api"),
         "dockerfile": _flag("dockerfile", "Dockerfile"),
         "context": _flag("build_context", "."),
-        # Amazon Inspector until Wiz credentials exist; then -c scanner=wizcli
-        "scanner": _flag("scanner", "inspector"),
+        # trivy (in CodeBuild) until Wiz credentials exist; then -c scanner=wizcli.
+        # inspector also works but changes the ACCOUNT-WIDE ECR scanning config.
+        "scanner": _flag("scanner", "trivy"),
         "bedrock_model_id": _flag("fix_model_id", "anthropic.claude-opus-5-5"),
         "bedrock_region": _flag("fix_model_region", ""),
     }

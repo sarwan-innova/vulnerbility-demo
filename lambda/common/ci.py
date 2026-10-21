@@ -8,7 +8,8 @@ CI loop shared logic: an image pushed by the app build -> registered -> scanned.
 
 SCANNER selects how images are scanned:
   inspector  Amazon Inspector ECR scan-on-push (an "Inspector2 Scan" event follows)
-  wizcli     the `*-wizscan` CodeBuild project (a CodeBuild state-change event follows)
+  wizcli     the `*-wizscan` CodeBuild project running wizcli (a CodeBuild state-change event follows)
+  trivy      the same project running Trivy (no account-wide scanning change; until Wiz)
   mock       the mock Wiz (local runs / tests)
 A push from a fix/<...>-<fixid> branch is linked to that AI fix, so the console
 can show before/after.
@@ -25,6 +26,7 @@ SCANNER = os.environ.get("SCANNER") or (
     "mock" if os.environ.get("WIZ_MOCK", "true").lower() == "true" else "wizcli")
 SCAN_PROJECT = os.environ.get("WIZ_SCAN_PROJECT", "")
 FIX_BRANCH_PREFIX = "fix/"
+CODEBUILD_SCANNERS = ("wizcli", "trivy")   # both run in the `*-wizscan` CodeBuild project
 
 _clients = {}
 
@@ -70,8 +72,8 @@ def register_push(repository, tag, digest, meta, account=None):
     scan = scanner.new_scan(image, purpose="ci", account=account)
     scan["digest"] = digest
     record["scan_id"] = scan["id"]
-    if SCANNER == "wizcli":
-        scan["mode"] = "wizcli"
+    if SCANNER in CODEBUILD_SCANNERS:
+        scan["mode"] = SCANNER
         env = scanner.live_env(scan)
         build = client("codebuild").start_build(
             projectName=SCAN_PROJECT,

@@ -208,3 +208,38 @@ def test_real_mode_fix_build_failure_marks_workflow_failed(real_app):
     s = _wait(app, wf, {"FAILED", "AWAIT_APPROVAL"})
     assert s["state"] == "FAILED" and s["failed_stage"] == "APPLY_FIX"
     assert "pip could not resolve" in s["failure"]
+
+
+# ---------------------------------------------------------------- scanner=trivy in CodeBuild
+def test_convert_trivy_script_matches_adapter(tmp_path):
+    """fixer/convert_trivy.py (run in the wizscan build) == the adapter used locally."""
+    import json
+    import subprocess
+    (tmp_path / "trivy.json").write_text(json.dumps(TRIVY))
+    (tmp_path / "layers.json").write_text(json.dumps(["sha256:base1"]))
+    proc = subprocess.run([sys.executable, os.path.join(ROOT, "fixer", "convert_trivy.py"),
+                           str(tmp_path / "trivy.json"), str(tmp_path / "layers.json"), BASE_REF,
+                           str(tmp_path / "out.json")], cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads((tmp_path / "out.json").read_text()) == \
+        trivy_adapter.to_wizcli(TRIVY, base_layers=["sha256:base1"], base_ref=BASE_REF)
+    # "<no value>" (docker found no label) and a missing layers file still convert:
+    # the base falls back to the label inside Trivy's own report
+    proc = subprocess.run([sys.executable, os.path.join(ROOT, "fixer", "convert_trivy.py"),
+                           str(tmp_path / "trivy.json"), str(tmp_path / "nope.json"), "<no value>",
+                           str(tmp_path / "out2.json")], cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode == 0
+    assert json.loads((tmp_path / "out2.json").read_text())["baseImage"] == BASE_REF
+
+
+def test_ci_scanner_trivy_runs_the_codebuild_scan(real_app, monkeypatch):
+    import ci
+    app, engine = real_app
+    app.seed()
+    monkeypatch.setattr(ci, "SCANNER", "trivy")
+    monkeypatch.setitem(ci._clients, "codebuild", engine)
+    rec = ci.register_push("demo/vuln-api", "abc1234", "sha256:x",
+                           {"commit": "abc1234" * 5, "branch": "main",
+                            "source": "https://github.com/o/r", "base_ref": BASE_REF})
+    scan = app.store.get_scan(rec["scan_id"])
+    assert scan["mode"] == "trivy" and scan["buildId"] and scan["status"] == "RUNNING"
