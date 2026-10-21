@@ -1,0 +1,3 @@
+# Third-party packages for the Lambda dependency layer (the Python runtime
+# already ships boto3). Installed for linux x86_64 / Python 3.12 at synth time.
+anthropic[bedrock]>=1.15,<2

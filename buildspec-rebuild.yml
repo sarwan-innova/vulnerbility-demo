@@ -1,0 +1,36 @@
+version: 0.2
+
+# Rebuild an image on a FIXED base-image tag and push to ECR.
+# Invoked by apply_fix (LIVE mode) via codebuild:StartBuild with env overrides:
+#   BASE_IMAGE   e.g. shared-base-images/al2023-python
+#   FIXED_TAG    e.g. 2026.02.4
+#   TARGET_REPO  the application's ECR repo (short name)
+#   TARGET_TAG   the tag to produce (also pushed as ":fixed" for the deploy step)
+# Project env (set on the CodeBuild project): AWS_ACCOUNT_ID, AWS_REGION, ECR_REGISTRY.
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to ECR..."
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+      - REPO_URI="$ECR_REGISTRY/$TARGET_REPO"
+      - echo "Rebuilding $REPO_URI:$TARGET_TAG FROM $ECR_REGISTRY/$BASE_IMAGE:$FIXED_TAG"
+  build:
+    commands:
+      # Minimal rebuild: re-base the app image onto the fixed base layer.
+      # In a real pipeline this uses the app's own Dockerfile with the base ARG
+      # overridden to the fixed tag. Here we show the base-swap pattern.
+      - |
+        cat > Dockerfile.rebuild <<EOF
+        FROM $ECR_REGISTRY/$BASE_IMAGE:$FIXED_TAG
+        # app layers are re-applied by the real app build; placeholder marker:
+        LABEL remediation.rebased="$BASE_IMAGE:$FIXED_TAG"
+        EOF
+      - docker build -f Dockerfile.rebuild -t "$REPO_URI:$TARGET_TAG" .
+      - docker tag "$REPO_URI:$TARGET_TAG" "$REPO_URI:fixed"
+  post_build:
+    commands:
+      - echo "Pushing fixed image..."
+      - docker push "$REPO_URI:$TARGET_TAG"
+      - docker push "$REPO_URI:fixed"
+      - echo "Rebuild complete."

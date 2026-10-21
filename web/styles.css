@@ -1,0 +1,85 @@
+:root{
+  --bg:#0f172a; --panel:#1e293b; --line:#334155; --muted:#94a3b8;
+  --accent:#38bdf8; --orange:#ff9900; --green:#34d399; --red:#f87171;
+  --amber:#fbbf24; --purple:#a78bfa; --text:#e2e8f0;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{padding:24px 36px;background:linear-gradient(120deg,#111c33,#0f172a);border-bottom:3px solid var(--orange)}
+header h1{margin:2px 0;font-size:22px}
+header .tag{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--orange)}
+header .sub{color:var(--muted);font-size:13px}
+.badge{display:inline-block;margin-left:8px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#38bdf822;color:var(--accent);border:1px solid var(--accent)}
+main{display:grid;grid-template-columns:1.1fr 1fr;gap:18px;max-width:1200px;margin:22px auto;padding:0 36px}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+h2{font-size:16px;border-bottom:1px solid var(--line);padding-bottom:8px;margin-top:4px}
+h3{font-size:14px;margin:14px 0 8px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #24303f;vertical-align:middle}
+th{color:var(--accent);font-size:11.5px}
+tr.selectable{cursor:pointer}
+tr.selectable:hover td{background:#24303f}
+.muted{color:var(--muted)}
+.hidden{display:none}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+.sev-CRITICAL{background:#f8717122;color:var(--red);border:1px solid var(--red)}
+.sev-HIGH{background:#fb923c22;color:#fb923c;border:1px solid #fb923c}
+.sev-MEDIUM{background:#fbbf2422;color:var(--amber);border:1px solid var(--amber)}
+.sev-LOW,.sev-INFO{background:#38bdf822;color:var(--accent);border:1px solid var(--accent)}
+.sla-BREACHED,.sla-OVERDUE{color:var(--red)} .sla-AT_RISK{color:var(--amber)} .sla-ON_TRACK{color:var(--green)}
+button{font-family:inherit;font-size:13px;border-radius:8px;padding:9px 16px;cursor:pointer;border:1px solid var(--line);background:#24303f;color:var(--text)}
+button.primary{background:var(--green);color:#06281c;border:none;font-weight:700}
+button.danger{background:var(--red);color:#2a0b0b;border:none;font-weight:700}
+button.link{background:none;border:none;color:var(--accent);padding:8px 0;margin-top:10px}
+button.small{padding:5px 11px;font-size:12px}
+.plan{background:#172033;border:1px solid var(--line);border-left:4px solid var(--orange);border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13px}
+#remediate-btn{margin-top:14px}
+ol#stage-tracker{list-style:none;padding:0;margin:12px 0}
+ol#stage-tracker li{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:13px;color:var(--muted)}
+ol#stage-tracker li .dot{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11px;flex:0 0 auto}
+ol#stage-tracker li.done{color:var(--text)} ol#stage-tracker li.done .dot{background:var(--green);border-color:var(--green);color:#06281c}
+ol#stage-tracker li.active{color:#fff;font-weight:600} ol#stage-tracker li.active .dot{border-color:var(--accent);color:var(--accent);animation:pulse 1s infinite}
+ol#stage-tracker li.failed .dot{background:var(--red);border-color:var(--red);color:#2a0b0b}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 #38bdf855}50%{box-shadow:0 0 0 5px #38bdf800}}
+.approval{background:#2a2550;border:1px solid var(--purple);border-radius:8px;padding:14px;margin:12px 0}
+.approval button{margin-right:8px;margin-top:6px}
+.note{border-radius:8px;padding:12px 14px;margin:12px 0;font-size:13px}
+.note.ok{background:#0f3d2e;border:1px solid var(--green)}
+.note.fail{background:#3d1414;border:1px solid var(--red)}
+footer{max-width:1200px;margin:10px auto 30px;padding:0 36px;font-size:11.5px}
+code{background:#172033;padding:1px 5px;border-radius:4px}
+/* report + workflow details (Phase 2) */
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px}
+.remediate-row{margin-top:14px}
+.scanbox{background:#172033;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13px}
+.advice{background:#211d3d;border:1px solid var(--line);border-left:4px solid var(--purple);border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13px}
+.advice .mode{font-size:10.5px;color:var(--purple);font-weight:700;letter-spacing:.5px}
+a.dl{color:var(--accent);font-size:12.5px;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:5px 10px}
+a.dl:hover{background:#24303f}
+.small-text{font-size:12px}
+#timeline{font-size:12px;color:var(--muted);padding-left:18px}
+#timeline li{margin:4px 0}
+details summary{cursor:pointer;color:var(--accent);font-size:13px;margin-top:10px}
+.note.info{background:#172033;border:1px solid var(--accent)}
+label input{vertical-align:middle}
+/* AI fix loop */
+tr.selected td{background:#1f2a3c}
+.chip.ok{background:#34d39922;color:var(--green);border:1px solid var(--green)}
+.chip.fix{background:#a78bfa22;color:var(--purple);border:1px solid var(--purple);font-weight:600}
+.fixpanel{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
+.note.warn{background:#3d3214;border:1px solid var(--amber)}
+.note ul,.advice ul{margin:6px 0 0 18px;padding:0}
+details.diff{background:#0b1220;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+details.diff summary{padding:8px 10px;font-size:12.5px}
+details.diff pre{margin:0;padding:8px 10px;overflow-x:auto;font-size:12px;line-height:1.45}
+pre .da{color:var(--green)} pre .dd{color:var(--red)} pre .dh{color:var(--muted)}
+.compare{display:flex;align-items:stretch;gap:10px;margin:10px 0}
+.compare .side{flex:1;border-radius:8px;padding:10px 12px;font-size:12.5px;border:1px solid var(--line)}
+.compare .side.bad{background:#3d1414;border-color:var(--red)}
+.compare .side.good{background:#0f3d2e;border-color:var(--green)}
+.compare .big{font-size:28px;font-weight:700;margin:4px 0}
+.compare .arrow{align-self:center;font-size:22px;color:var(--muted)}
+.spinner{display:inline-block;width:11px;height:11px;border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+ul.risks{color:var(--amber)}

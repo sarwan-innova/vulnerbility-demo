@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Image Remediation Console</title>
+<link rel="stylesheet" href="styles.css?v=4" />
+</head>
+<body>
+<header>
+  <div class="tag">REMEDIATION CONSOLE · ON TOP OF WIZ</div>
+  <h1>Image Vulnerability Remediation</h1>
+  <div class="sub">
+    git push → CodeBuild → ECR → scan → ✨ fix with AI → push fix branch + PR → rebuild → re-scan
+    <span id="mode-badge" class="badge">…</span>
+    <span id="auth-area">
+      <span id="user-label" class="muted"></span>
+      <button id="signin-btn" class="small hidden">Sign in</button>
+      <button id="signout-btn" class="small hidden">Sign out</button>
+    </span>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: images built by CI -->
+  <section id="images-panel" class="panel">
+    <h2>1 · Images <span class="muted small-text">(newest push first)</span></h2>
+    <table id="images-table">
+      <thead>
+        <tr><th>Image</th><th>Source</th><th>Scan</th><th>Findings</th><th></th></tr>
+      </thead>
+      <tbody id="images-body"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- RIGHT: findings report + AI fix -->
+  <section id="detail-panel" class="panel">
+    <h2 id="detail-title">2 · Select an image</h2>
+    <div id="detail-view" class="hidden">
+      <div id="source-line" class="muted small-text"></div>
+      <div id="gate-banner" class="note hidden"></div>
+
+      <div id="scan-box" class="scanbox">
+        <div><strong>Scan</strong> <span id="scan-status" class="muted"></span></div>
+        <div class="row">
+          <button id="scan-btn" class="small">⟳ Re-scan</button>
+          <a id="report-link" class="dl hidden" href="#" download>⬇ Scan report (JSON)</a>
+          <a id="sbom-link" class="dl hidden" href="#" download>⬇ SBOM</a>
+        </div>
+      </div>
+
+      <div id="advice-box" class="advice hidden"></div>
+
+      <table id="findings-table">
+        <thead><tr><th>CVE</th><th>Severity</th><th>SLA</th><th>EPSS</th><th>Layer</th><th>Package → fix</th></tr></thead>
+        <tbody id="findings-body"></tbody>
+      </table>
+
+      <!-- AI fix -->
+      <div id="fix-panel" class="fixpanel">
+        <div class="row">
+          <button id="fix-btn" class="primary">✨ Fix with AI</button>
+          <span id="fix-model" class="muted small-text"></span>
+        </div>
+        <div id="fix-status" class="note info hidden"></div>
+        <div id="fix-result" class="hidden">
+          <div id="fix-summary" class="advice"></div>
+          <div id="fix-validation"></div>
+          <div id="fix-diffs"></div>
+          <div class="row">
+            <button id="push-btn" class="primary">⬆ Push fix (new branch + pull request)</button>
+            <span class="muted small-text">Never pushes to your base branch.</span>
+          </div>
+        </div>
+        <div id="push-result" class="hidden"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span class="muted" id="footer-note"></span>
+</footer>
+
+<script src="config.js?v=4"></script>
+<script src="auth.js?v=4"></script>
+<script src="app.js?v=4"></script>
+</body>
+</html>

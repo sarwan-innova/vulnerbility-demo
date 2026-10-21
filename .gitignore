@@ -1,0 +1,28 @@
+# CDK
+cdk.out/
+*.d.ts
+.cdk.staging/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# scratch
+*.log
+so.txt
+se.txt
+synth*.txt
+
+# local dev server data (reports, SBOMs)
+.local/
+
+# client documents (confidential) — never commit
+*.pdf
+*.docx
+*.xlsx
+*.pptx
+
+# local editor / Claude settings
+.claude/
