@@ -297,6 +297,8 @@ class PromotionStack(Stack):
 
         images_fn = fn("ImagesFn", "images", timeout=15)
         image_findings_fn = fn("ImageFindingsFn", "image_findings", timeout=30)
+        if ci_loop:  # so the console labels the fix with the real model, not "rule-based"
+            image_findings_fn.add_environment("FIX_MODEL_ID", ci_loop.get("bedrock_model_id", ""))
         scan_fn = fn("ScanFn", "scan", timeout=60)
         remediate_fn = fn("RemediateFn", "remediate")
         apply_fix_fn = fn("ApplyFixFn", "apply_fix", timeout=60)

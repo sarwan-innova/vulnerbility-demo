@@ -26,7 +26,7 @@ import re
 import fix_engine
 import promotion
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")
+MODEL_ID = os.environ.get("FIX_MODEL_ID") or os.environ.get("BEDROCK_MODEL_ID", "")
 REGION = os.environ.get("BEDROCK_REGION") or os.environ.get("AWS_REGION", "us-east-1")
 EFFORT = os.environ.get("BEDROCK_EFFORT", "high")
 

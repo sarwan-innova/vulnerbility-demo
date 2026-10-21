@@ -170,6 +170,7 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
     # images built before that label existed (the first app's folder)
     ai_fn.add_environment("BUILD_CONTEXT", cfg["apps"][0].get("context", ".").strip("./"))
     ai_fn.add_environment("BEDROCK_MODEL_ID", cfg.get("bedrock_model_id", ""))
+    ai_fn.add_environment("FIX_MODEL_ID", cfg.get("bedrock_model_id", ""))
     ai_fn.add_environment("BEDROCK_REGION", cfg.get("bedrock_region") or stack.region)
     gh_secret.grant_read(ai_fn)
     report_bucket.grant_read_write(ai_fn)
