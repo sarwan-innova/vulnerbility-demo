@@ -1,6 +1,6 @@
 # Deliberately old base image (EOL Alpine 3.16), from the ECR Public mirror of the
 # official image (no Docker Hub rate limits in CodeBuild). The platform moves it to a fixed tag.
-FROM public.ecr.aws/docker/library/python:3.9-alpine3.16
+FROM public.ecr.aws/docker/library/python:3.12-alpine
 
 WORKDIR /app
 COPY requirements.txt .
