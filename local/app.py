@@ -147,7 +147,9 @@ class LocalApp:
                 build = self.cb.batch_get_builds([scan["buildId"]])["builds"][0]
                 ev.handler({"source": "aws.codebuild", "detail-type": "CodeBuild Build State Change",
                             "detail": {"build-status": build["buildStatus"],
-                                       "build-id": scan["buildId"]}}, None)
+                                       # the real event carries the build ARN
+                                       "build-id": "arn:aws:codebuild:us-east-1:000000000000:build/"
+                                                   + scan["buildId"]}}, None)
         except Exception as e:                              # show build failures in the console
             self.store.put_image({"image": f"{ecr_repo}:{tag}", "repo": ecr_repo, "tag": tag,
                                   "commit": sha, "branch": branch, "github": repo,

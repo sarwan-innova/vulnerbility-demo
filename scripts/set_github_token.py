@@ -47,7 +47,12 @@ def main():
     perms = repo.get("permissions") or {}
     if perms and not perms.get("push"):
         sys.exit("The token can read the repo but not push: give it Contents = Read and write.")
-    print(f"GitHub: token can access {args.repo} (private={repo.get('private')}).")
+    hooks_status, _ = github_repo_access(token, f"{args.repo}/hooks")
+    if hooks_status != 200:
+        sys.exit(f"GitHub says HTTP {hooks_status} for webhooks: CodeBuild needs the token's "
+                 "'Webhooks' permission set to Read and write.")
+    print(f"GitHub: token can access {args.repo} and manage its webhooks "
+          f"(private={repo.get('private')}).")
 
     import boto3
     sm = boto3.Session(profile_name=args.profile, region_name=args.region).client("secretsmanager")

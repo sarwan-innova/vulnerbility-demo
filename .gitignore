@@ -26,3 +26,6 @@ synth*.txt
 
 # local editor / Claude settings
 .claude/
+
+# deploy outputs (account-specific URLs and IDs)
+cdk-outputs*.json

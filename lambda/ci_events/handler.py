@@ -58,7 +58,12 @@ def on_build_state(detail):
     status = detail.get("build-status")
     if status in ("IN_PROGRESS", None):
         return {"skipped": "build still running"}
-    scan = store.find_scan_by_build(detail.get("build-id"))
+    # EventBridge sends the build ARN (arn:aws:codebuild:...:build/<project>:<id>);
+    # StartBuild returned (and we stored) the short "<project>:<id>"
+    build_id = detail.get("build-id") or ""
+    if ":build/" in build_id:
+        build_id = build_id.split(":build/", 1)[1]
+    scan = store.find_scan_by_build(build_id)
     if not scan or scan.get("status") != "RUNNING":
         return {"skipped": "no running scan for this build"}
     scan = scanner.finalize(scan) if status == "SUCCEEDED" else scanner.fail(scan, f"wizcli build {status}")
