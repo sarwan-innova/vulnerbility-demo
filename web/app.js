@@ -27,8 +27,12 @@ async function api(path, opts) {
   }
   const r = await fetch(API_BASE + path, opts);
   if (r.status === 401 || r.status === 403) {
-    if (AUTH_ON) AUTH.signIn();
-    throw new Error("not signed in");
+    // only send the user to sign-in when there is no token; a rejected token
+    // means the API isn't accepting this login — redirecting would loop forever
+    if (AUTH_ON && !AUTH.getIdToken()) AUTH.signIn();
+    throw new Error(AUTH_ON && AUTH.getIdToken()
+      ? `the API rejected your sign-in (HTTP ${r.status}) — try Sign out, then Sign in`
+      : "not signed in");
   }
   const body = await r.json();
   if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), { body });

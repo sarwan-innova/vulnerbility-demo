@@ -18,6 +18,8 @@ from aws_cdk import (
     aws_cloudfront as cf,
     aws_cloudfront_origins as origins,
     aws_cognito as cognito,
+    aws_iam as iam,
+    custom_resources as cr,
 )
 from constructs import Construct
 
@@ -26,7 +28,8 @@ class EdgeStack(Stack):
     def __init__(self, scope: Construct, cid: str, *, prefix: str,
                  api_url: str = "",
                  user_pool=None,
-                 cognito_domain_prefix: str = "", **kwargs):
+                 cognito_domain_prefix: str = "",
+                 http_api_id: str = "", jwt_authorizer_id: str = "", **kwargs):
         super().__init__(scope, cid, **kwargs)
 
         # --- private UI bucket (no public access) ---
@@ -84,6 +87,35 @@ class EdgeStack(Stack):
                 generate_secret=False,
             )
             client_id = cfn_client.ref
+
+            # The API's JWT authorizer (PromotionStack) only accepts tokens whose
+            # audience is one of ITS clients, and this console client can't be
+            # given to it there without a stack cycle (it needs the CloudFront
+            # URL). So set the authorizer's audience to this client here, at
+            # deploy time. Re-applied on every Edge deploy that changes the
+            # client; if PromotionStack ever changes the authorizer itself,
+            # redeploy Edge afterwards (`cdk deploy --all` does this in order).
+            if http_api_id and jwt_authorizer_id:
+                set_audience = cr.AwsSdkCall(
+                    service="ApiGatewayV2", action="updateAuthorizer",
+                    parameters={
+                        "ApiId": http_api_id,
+                        "AuthorizerId": jwt_authorizer_id,
+                        "JwtConfiguration": {
+                            "Audience": [client_id],
+                            "Issuer": f"https://cognito-idp.{self.region}.amazonaws.com/"
+                                      f"{user_pool.user_pool_id}",
+                        },
+                    },
+                    physical_resource_id=cr.PhysicalResourceId.of(f"{prefix}-api-audience"))
+                cr.AwsCustomResource(
+                    self, "ApiAcceptsConsoleLogin",
+                    on_create=set_audience, on_update=set_audience,
+                    policy=cr.AwsCustomResourcePolicy.from_statements([iam.PolicyStatement(
+                        actions=["apigateway:PATCH", "apigateway:GET"],
+                        resources=[f"arn:aws:apigateway:{self.region}::/apis/{http_api_id}"
+                                   f"/authorizers/{jwt_authorizer_id}"])]),
+                )
 
         # --- runtime config.js injected into the UI bucket ---
         api_base = (api_url or "").rstrip("/")

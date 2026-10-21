@@ -528,6 +528,9 @@ class PromotionStack(Stack):
         )
 
         self.api_url = http_api.url or ""   # consumed by EdgeStack (CloudFront origin)
+        # EdgeStack adds its console login client to this authorizer's audience
+        self.http_api_id = http_api.api_id
+        self.jwt_authorizer_id = jwt_authorizer.authorizer_id if jwt_authorizer else ""
         self.cognito_domain_prefix = (f"{prefix}-{self.account}"[:63].replace("_", "-")
                                       if secure else "")
 

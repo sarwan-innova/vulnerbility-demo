@@ -130,6 +130,8 @@ if secure:
         api_url=promo.api_url,
         user_pool=promo.user_pool,
         cognito_domain_prefix=promo.cognito_domain_prefix,
+        http_api_id=promo.http_api_id,
+        jwt_authorizer_id=promo.jwt_authorizer_id,
         env=env,
     )
 
