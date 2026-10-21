@@ -284,11 +284,13 @@ class PromotionStack(Stack):
                 self, "DepsLayer", code=deps_layer_code(),
                 compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
                 description="Third-party packages (Anthropic SDK)")
-            ai_fix_fn, app_build, app_repo = add_ci_loop(
+            ai_fix_fn, built = add_ci_loop(
                 self, prefix=prefix, fn=fn, deps_layer=deps_layer, report_bucket=report_bucket,
                 wizscan_project=wizscan_project, cfg=ci_loop)
-            CfnOutput(self, "AppBuildProject", value=app_build.project_name)
-            CfnOutput(self, "AppEcrRepo", value=app_repo.repository_uri)
+            CfnOutput(self, "AppBuildProject", value=built[0][1].project_name)
+            CfnOutput(self, "AppEcrRepo", value=built[0][2].repository_uri)
+            CfnOutput(self, "AppBuildProjects",
+                      value=",".join(b.project_name for _, b, _ in built))
 
         images_fn = fn("ImagesFn", "images", timeout=15)
         image_findings_fn = fn("ImageFindingsFn", "image_findings", timeout=30)

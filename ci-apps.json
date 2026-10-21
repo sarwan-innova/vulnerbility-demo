@@ -1,0 +1,7 @@
+[
+  {"github_repo": "sarwan-innova/vulnerbility-demo",      "ecr_repo": "demo/vuln-api",                "context": "demo-app"},
+  {"github_repo": "sarwan-innova/node-sales-dashboard",   "ecr_repo": "apps/node-sales-dashboard",   "context": "."},
+  {"github_repo": "sarwan-innova/node-ops-dashboard",     "ecr_repo": "apps/node-ops-dashboard",     "context": "."},
+  {"github_repo": "sarwan-innova/py-metrics-dashboard",   "ecr_repo": "apps/py-metrics-dashboard",   "context": "."},
+  {"github_repo": "sarwan-innova/py-inventory-dashboard", "ecr_repo": "apps/py-inventory-dashboard", "context": "."}
+]

@@ -41,11 +41,6 @@ LOCAL_SFN = "arn:local:states:::stateMachine:promotion"
 LOCAL_AGENTIC_SFN = "arn:local:states:::stateMachine:promotion-agentic"
 # the demo service in demo-app/ (built + scanned at startup in real mode)
 DEMO_IMAGE = {"repo": "demo/vuln-api", "tag": "1.0", "source": os.path.join(ROOT, "demo-app")}
-# public base images the demo uses; fixed tag = current upstream tag
-DEMO_BASE_IMAGES = [{"name": "library/python", "current_tag": "3.9-alpine3.16",
-                     "fixed_tag_available": "3.12-alpine", "os": "Alpine Linux",
-                     "runtime": "python", "rebuild_cadence": "upstream",
-                     "downstream_image_count": 1}]
 TASKS = ("apply_fix", "deploy", "verify", "await_approval", "agent_triage",
          "agent_planner", "agent_verifier", "ingest", "ci_events")
 # the demo service as a GitHub repo for the push -> build -> scan -> AI fix loop
@@ -135,7 +130,7 @@ class LocalApp:
                 self.cb.register(image_uri, files)
             self.image_meta[(ecr_repo, digest)] = {
                 "commit": sha, "branch": branch, "source": f"https://github.com/{repo}",
-                "base_ref": base_ref(files), "base_layers": []}
+                "base_ref": base_ref(files), "base_layers": [], "context": "."}
             ev = self.handlers["ci_events"]
             ev.handler({"source": "aws.ecr", "detail-type": "ECR Image Action", "account": "local",
                         "detail": {"action-type": "PUSH", "result": "SUCCESS",
@@ -174,9 +169,9 @@ class LocalApp:
         or, in real mode, build the demo image if needed and scan it for real."""
         import core
         sys.path.insert(0, ROOT)
-        from seed_reference_data import BASE_IMAGES
+        from seed_reference_data import BASE_IMAGES, PUBLIC_BASE_IMAGES
         self.store.reset()
-        for bi in BASE_IMAGES + DEMO_BASE_IMAGES:
+        for bi in BASE_IMAGES + PUBLIC_BASE_IMAGES:
             self.store.put_base_image(bi)
         self.store.put_policy(core.default_policy())  # today's date drives SLA
         if self.ci_loop:                                  # developer pushes demo-app to main

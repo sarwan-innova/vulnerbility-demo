@@ -151,7 +151,8 @@ def test_inspector_list_findings_pages():
 def test_ecr_meta_reads_labels_and_base_layers():
     labels = {"org.opencontainers.image.revision": "abc123", "com.innova.git.branch": "main",
               "org.opencontainers.image.source": "https://github.com/o/r",
-              "org.opencontainers.image.base.name": "python:3.9", "com.innova.base.layers": "2"}
+              "org.opencontainers.image.base.name": "python:3.9", "com.innova.base.layers": "2",
+              "com.innova.build.context": "demo-app"}
 
     class FakeECR:
         def batch_get_image(self, **kw):
@@ -165,7 +166,7 @@ def test_ecr_meta_reads_labels_and_base_layers():
     meta = ecr_meta.describe_image(FakeECR(), "demo/vuln-api", "sha256:d",
                                    fetch=lambda u: json.dumps({"config": {"Labels": labels}}).encode())
     assert meta == {"commit": "abc123", "source": "https://github.com/o/r", "base_ref": "python:3.9",
-                    "branch": "main", "base_layers": ["sha256:l1", "sha256:l2"]}
+                    "branch": "main", "base_layers": ["sha256:l1", "sha256:l2"], "context": "demo-app"}
 
 
 # ---------------------------------------------------------------- AI fixer

@@ -59,6 +59,7 @@ def register_push(repository, tag, digest, meta, account=None):
         "commit": meta.get("commit"), "branch": meta.get("branch"),
         "github": repo_from_source_url(meta.get("source")),
         "base_ref": meta.get("base_ref"), "base_layers": meta.get("base_layers") or [],
+        "context": meta.get("context"),
         "scanner": SCANNER, "scan_status": "SCANNING",
     }
     fix_id = fix_id_from_branch(record["branch"])

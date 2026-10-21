@@ -86,15 +86,24 @@ secure = _flag("secure", "false") == "true"
 
 # Developer loop (git push -> CodeBuild -> ECR -> scan -> Fix with AI -> push fix PR).
 # Opt-in: -c github_repo=<owner>/<name>. The GitHub token secret must exist first.
+# Several apps: -c apps_file=ci-apps.json  ([{github_repo, ecr_repo, context?, dockerfile?}];
+# keep the first entry first — it owns the original single-app resources).
 github_repo = _flag("github_repo", "")
+apps_file = _flag("apps_file", "")
+apps = []
+if apps_file:
+    with open(apps_file, encoding="utf-8") as fh:
+        apps = json.load(fh)
+elif github_repo:
+    apps = [{"github_repo": github_repo,
+             "ecr_repo": _flag("app_ecr_repo", "demo/vuln-api"),
+             "dockerfile": _flag("dockerfile", "Dockerfile"),
+             "context": _flag("build_context", ".")}]
 ci_loop = None
-if github_repo:
+if apps:
     ci_loop = {
-        "github_repo": github_repo,
+        "apps": apps,
         "github_secret": _flag("github_secret", f"{prefix}/github"),
-        "ecr_repo": _flag("app_ecr_repo", "demo/vuln-api"),
-        "dockerfile": _flag("dockerfile", "Dockerfile"),
-        "context": _flag("build_context", "."),
         # trivy (in CodeBuild) until Wiz credentials exist; then -c scanner=wizcli.
         # inspector also works but changes the ACCOUNT-WIDE ECR scanning config.
         "scanner": _flag("scanner", "trivy"),

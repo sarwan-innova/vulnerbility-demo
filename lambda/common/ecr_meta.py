@@ -8,6 +8,7 @@ standard OCI annotations plus two of ours:
   org.opencontainers.image.base.name     the FROM image
   com.innova.git.branch                  branch that was pushed
   com.innova.base.layers                 number of layers that come from the base
+  com.innova.build.context               the app's folder in the repo ("." = repo root)
 
 describe_image() reads the manifest + config blob from ECR and returns those
 fields plus the base layer digests (first N manifest layers), which scanners
@@ -23,6 +24,7 @@ LABELS = {
     "base_ref": "org.opencontainers.image.base.name",
     "branch": "com.innova.git.branch",
     "base_layer_count": "com.innova.base.layers",
+    "context": "com.innova.build.context",
 }
 MANIFEST_TYPES = ["application/vnd.docker.distribution.manifest.v2+json",
                   "application/vnd.oci.image.manifest.v1+json"]

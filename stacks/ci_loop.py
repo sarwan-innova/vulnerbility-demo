@@ -1,18 +1,21 @@
 """
 CI loop resources (git push -> CodeBuild -> ECR -> scan -> AI fix -> push), added
-to PromotionStack when `-c github_repo=owner/name` is set:
+to PromotionStack when apps are configured (`-c github_repo=owner/name` for one
+app, or `-c apps_file=ci-apps.json` for several). PER APP:
 
-  * CodeBuild `*-app-build`: GitHub webhook on every push; builds the image,
-    labels it (commit, branch, source, base image + base layer count) and
+  * CodeBuild build: GitHub webhook on push; builds the image, labels it
+    (commit, branch, source, build folder, base image + base layer count) and
     pushes <ecr repo>:<short sha>
-  * ECR repository for the app (+ ECR enhanced scanning / Amazon Inspector
-    on push when scanner=inspector)
+  * an ECR repository
+Shared: ECR enhanced scanning / Amazon Inspector when scanner=inspector,
   * EventBridge -> ciEventsFn: ECR push, Inspector scan done, wizscan finished
   * aiFixFn: Fix with AI (Claude in Amazon Bedrock) + Push fix (GitHub branch + PR)
 
 Before deploying, create the GitHub token secret (CodeBuild's webhook needs it
 at deploy time):  {"token": "<fine-grained PAT>"}  — see README "Deploy the loop".
 """
+
+import re
 
 from aws_cdk import (
     Duration, RemovalPolicy, SecretValue,
@@ -26,6 +29,7 @@ from aws_cdk import (
 )
 
 LABEL_ARGS = (
+    '--label "com.innova.build.context=$CONTEXT" '
     '--label "org.opencontainers.image.revision=$COMMIT" '
     '--label "org.opencontainers.image.source=$SOURCE_URL" '
     '--label "org.opencontainers.image.base.name=$BASE" '
@@ -57,46 +61,59 @@ def _app_buildspec():
     }
 
 
-def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project, cfg):
-    """Returns the AI-fix Lambda (its HTTP routes are added with the API)."""
-    owner, name = cfg["github_repo"].split("/", 1)
-    gh_secret = secrets.Secret.from_secret_name_v2(stack, "GitHubSecret", cfg["github_secret"])
+def _ids(app, first):
+    """Construct-id suffix + CodeBuild project name. The FIRST app keeps the
+    original ids so an existing single-app deployment is updated, not replaced."""
+    slug = re.sub(r"[^a-z0-9]+", "-", app["ecr_repo"].lower()).strip("-")
+    suffix = "" if first else "".join(p.capitalize() for p in slug.split("-"))
+    return suffix, (None if first else slug[:60])
 
-    # ---------- ECR repo + push-triggered build ----------
-    repo = ecr.Repository(
-        stack, "AppRepo", repository_name=cfg["ecr_repo"],
-        removal_policy=RemovalPolicy.DESTROY, empty_on_delete=True,
-        lifecycle_rules=[ecr.LifecycleRule(max_image_count=100)],
-    )
+
+def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project, cfg):
+    """Returns (AI-fix Lambda, [(app, build project, ECR repo)])."""
+    gh_secret = secrets.Secret.from_secret_name_v2(stack, "GitHubSecret", cfg["github_secret"])
     creds = codebuild.GitHubSourceCredentials(
         stack, "GitHubCreds",
         access_token=SecretValue.secrets_manager(cfg["github_secret"], json_field="token"))
-    # build on every push — or, when the app lives in a subfolder of a bigger
-    # repo, only on pushes that change that subfolder
-    push = codebuild.FilterGroup.in_event_of(codebuild.EventAction.PUSH)
-    context = cfg.get("context", ".").strip("./")
-    if context:
-        push = push.and_file_path_is(f"^{context}/")
-    build = codebuild.Project(
-        stack, "AppBuild",
-        project_name=f"{prefix}-app-build",
-        source=codebuild.Source.git_hub(
-            owner=owner, repo=name, webhook=True, webhook_filters=[push]),
-        build_spec=codebuild.BuildSpec.from_object(_app_buildspec()),
-        environment=codebuild.BuildEnvironment(
-            build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
-            privileged=True, compute_type=codebuild.ComputeType.SMALL),
-        environment_variables={
-            "ECR_REPO_URI": codebuild.BuildEnvironmentVariable(value=repo.repository_uri),
-            "AWS_REGION": codebuild.BuildEnvironmentVariable(value=stack.region),
-            "DOCKERFILE": codebuild.BuildEnvironmentVariable(value=cfg.get("dockerfile", "Dockerfile")),
-            "CONTEXT": codebuild.BuildEnvironmentVariable(value=cfg.get("context", ".")),
-            "SOURCE_URL": codebuild.BuildEnvironmentVariable(value=f"https://github.com/{owner}/{name}"),
-        },
-        timeout=Duration.minutes(30),
-    )
-    build.node.add_dependency(creds)
-    repo.grant_pull_push(build)
+
+    built = []
+    for i, app in enumerate(cfg["apps"]):
+        suffix, slug = _ids(app, i == 0)
+        owner, name = app["github_repo"].split("/", 1)
+        # ---------- ECR repo + push-triggered build ----------
+        repo = ecr.Repository(
+            stack, f"AppRepo{suffix}", repository_name=app["ecr_repo"],
+            removal_policy=RemovalPolicy.DESTROY, empty_on_delete=True,
+            lifecycle_rules=[ecr.LifecycleRule(max_image_count=100)],
+        )
+        # build on every push — or, when the app lives in a subfolder of a bigger
+        # repo, only on pushes that change that subfolder
+        push = codebuild.FilterGroup.in_event_of(codebuild.EventAction.PUSH)
+        context = app.get("context", ".").strip("./")
+        if context:
+            push = push.and_file_path_is(f"^{context}/")
+        build = codebuild.Project(
+            stack, f"AppBuild{suffix}",
+            project_name=f"{prefix}-app-build" if slug is None else f"{prefix}-build-{slug}",
+            source=codebuild.Source.git_hub(
+                owner=owner, repo=name, webhook=True, webhook_filters=[push]),
+            build_spec=codebuild.BuildSpec.from_object(_app_buildspec()),
+            environment=codebuild.BuildEnvironment(
+                build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
+                privileged=True, compute_type=codebuild.ComputeType.SMALL),
+            environment_variables={
+                "ECR_REPO_URI": codebuild.BuildEnvironmentVariable(value=repo.repository_uri),
+                "AWS_REGION": codebuild.BuildEnvironmentVariable(value=stack.region),
+                "DOCKERFILE": codebuild.BuildEnvironmentVariable(value=app.get("dockerfile", "Dockerfile")),
+                "CONTEXT": codebuild.BuildEnvironmentVariable(value=context or "."),
+                "SOURCE_URL": codebuild.BuildEnvironmentVariable(value=f"https://github.com/{owner}/{name}"),
+            },
+            timeout=Duration.minutes(30),
+        )
+        build.node.add_dependency(creds)
+        repo.grant_pull_push(build)
+        built.append((app, build, repo))
+    ecr_names = [a["ecr_repo"] for a in cfg["apps"]]
 
     # ---------- scanner ----------
     if cfg["scanner"] == "inspector":
@@ -105,7 +122,7 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
             rules=[ecr.CfnRegistryScanningConfiguration.ScanningRuleProperty(
                 scan_frequency="SCAN_ON_PUSH",
                 repository_filters=[ecr.CfnRegistryScanningConfiguration.RepositoryFilterProperty(
-                    filter=cfg["ecr_repo"], filter_type="WILDCARD")])])
+                    filter=n, filter_type="WILDCARD") for n in ecr_names])])
         cr.AwsCustomResource(
             stack, "EnableInspectorForEcr",
             on_create=cr.AwsSdkCall(
@@ -120,7 +137,8 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
     ci_fn = fn("CiEventsFn", "ci_events", timeout=300)
     ci_fn.add_environment("SCANNER", cfg["scanner"])
     ci_fn.add_environment("WIZ_SCAN_PROJECT", wizscan_project.project_name)
-    repo.grant_pull(ci_fn)
+    for _, _, repo in built:
+        repo.grant_pull(ci_fn)
     ci_fn.add_to_role_policy(iam.PolicyStatement(
         actions=["inspector2:ListFindings"], resources=["*"]))
     ci_fn.add_to_role_policy(iam.PolicyStatement(
@@ -132,7 +150,7 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
                 event_pattern=events.EventPattern(
                     source=["aws.ecr"], detail_type=["ECR Image Action"],
                     detail={"action-type": ["PUSH"], "result": ["SUCCESS"],
-                            "repository-name": [cfg["ecr_repo"]]}),
+                            "repository-name": ecr_names}),
                 targets=[targets.LambdaFunction(ci_fn)])
     events.Rule(stack, "InspectorScanRule", rule_name=f"{prefix}-inspector-scan",
                 event_pattern=events.EventPattern(
@@ -148,7 +166,9 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
     # ---------- AI fix + push ----------
     ai_fn = fn("AiFixFn", "ai_fix", timeout=900, memory=1024, extra_layers=[deps_layer])
     ai_fn.add_environment("GITHUB_SECRET_ARN", gh_secret.secret_arn)
-    ai_fn.add_environment("BUILD_CONTEXT", context)   # the model only sees this folder
+    # images carry their build folder as a label; this is the fallback for
+    # images built before that label existed (the first app's folder)
+    ai_fn.add_environment("BUILD_CONTEXT", cfg["apps"][0].get("context", ".").strip("./"))
     ai_fn.add_environment("BEDROCK_MODEL_ID", cfg.get("bedrock_model_id", ""))
     ai_fn.add_environment("BEDROCK_REGION", cfg.get("bedrock_region") or stack.region)
     gh_secret.grant_read(ai_fn)
@@ -158,4 +178,4 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
     ai_fn.add_to_role_policy(iam.PolicyStatement(          # async self-invoke for the worker
         actions=["lambda:InvokeFunction"],
         resources=[f"arn:aws:lambda:{stack.region}:{stack.account}:function:{prefix}-ai_fix"]))
-    return ai_fn, build, repo
+    return ai_fn, built

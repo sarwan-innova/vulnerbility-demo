@@ -35,6 +35,19 @@ BASE_IMAGES = [
      "downstream_image_count": 97},
 ]
 
+# Public official images the demo + test apps build FROM (via the ECR Public
+# mirror). fixed_tag_available = the current upstream tag the AI fix moves to.
+PUBLIC_BASE_IMAGES = [
+    {"name": "library/python", "current_tag": "3.9-alpine3.16", "os": "Alpine Linux",
+     "runtime": "python", "rebuild_cadence": "upstream", "fixed_tag_available": "3.12-alpine",
+     "downstream_image_count": 3},
+    {"name": "library/node", "current_tag": "16-alpine3.16", "os": "Alpine Linux",
+     "runtime": "node", "rebuild_cadence": "upstream", "fixed_tag_available": "22-alpine",
+     "downstream_image_count": 2},
+]
+
+# NOTE: "today" freezes the SLA clock. Only written with --with-policy; without a
+# stored policy the platform uses core.default_policy() (today's date).
 POLICY = {
     "today": "2026-02-20",
     "sla": {"target_days": 15, "breach_days": 30, "measure_from": "firstSeen"},
@@ -51,16 +64,23 @@ def main():
     ap.add_argument("--region", default="us-east-1")
     ap.add_argument("--demo-findings", action="store_true",
                     help="also load the demo Wiz findings for a first run")
+    ap.add_argument("--with-policy", action="store_true",
+                    help="also store the fixed-date demo POLICY (freezes the SLA clock)")
+    ap.add_argument("--profile", default=None, help="AWS profile (e.g. sandbox)")
     args = ap.parse_args()
 
     os.environ["TABLE_NAME"] = args.table
     os.environ.setdefault("AWS_DEFAULT_REGION", args.region)
+    if args.profile:
+        os.environ["AWS_PROFILE"] = args.profile
     import store  # imported after env is set
 
-    for bi in BASE_IMAGES:
+    for bi in BASE_IMAGES + PUBLIC_BASE_IMAGES:
         store.put_base_image(bi)
-    store.put_policy(POLICY)
-    print(f"Seeded {len(BASE_IMAGES)} base images + policy into {args.table}")
+    if args.with_policy:
+        store.put_policy(POLICY)
+    print(f"Seeded {len(BASE_IMAGES) + len(PUBLIC_BASE_IMAGES)} base images"
+          + (" + policy" if args.with_policy else "") + f" into {args.table}")
 
     if args.demo_findings:
         path = os.path.join(os.path.dirname(__file__), "..", "demo-norstella", "data", "wiz_findings.json")

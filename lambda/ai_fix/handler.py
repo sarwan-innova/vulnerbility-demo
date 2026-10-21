@@ -80,6 +80,8 @@ def start(image, context, user=None):
            "createdAt": _now(), "requestedBy": user,
            "github": record["github"], "commit": record["commit"],
            "base_branch": record.get("branch") or "main",
+           # the app's folder in the repo (image label); older images: the env fallback
+           "context": record.get("context") or BUILD_CONTEXT,
            "mode": "bedrock" if ai_fixer.model_configured() else "rule-based",
            "model": ai_fixer.MODEL_ID or None,
            "before": _counts(findings, policy)}
@@ -105,7 +107,7 @@ def work(fix_id):
         listing = gh.list_files(fix["github"], fix["commit"])
         files, notes = ai_fixer.select_context(
             listing, lambda p: gh.read_file(fix["github"], p, fix["commit"]), findings,
-            root=BUILD_CONTEXT)
+            root=fix.get("context", BUILD_CONTEXT))
         proposal = ai_fixer.propose(fix["image"], findings, base_images, files)
         validation = ai_fixer.validate(proposal, files, findings, base_images)
         store.put_json_report(_proposal_key(fix_id), {
