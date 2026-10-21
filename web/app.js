@@ -61,6 +61,22 @@ function scanCell(i) {
   return sevChip(i.worst_severity) + kevChip(i.kev) + approvedChip(i);
 }
 
+const expandedRepos = new Set();
+
+function imageRow(i, extra, earlier) {
+  const tr = document.createElement("tr");
+  tr.className = "selectable" + (earlier ? " earlier" : "") + (i.image === current.image ? " selected" : "");
+  const fixOf = i.source_image ? `<br><span class="chip fix">AI fix of ${esc(i.source_image.split(":")[1] || i.source_image)}</span>` : "";
+  const name = earlier ? `↳ ${esc(i.image.split(":")[1] || i.image)}` : `<strong>${esc(i.image)}</strong>`;
+  tr.innerHTML = `<td>${name}${fixOf}${extra}</td>
+    <td class="muted small-text">${i.branch ? `<code>${esc(i.branch)}</code><br>` : ""}${esc(short(i.commit))}</td>
+    <td>${scanCell(i)}</td>
+    <td style="text-align:center">${esc(i.finding_count)}</td>
+    <td><button class="small">Open</button></td>`;
+  tr.onclick = () => selectImage(i.image);
+  return tr;
+}
+
 async function loadImages() {
   const body = $("images-body");
   let images;
@@ -72,17 +88,30 @@ async function loadImages() {
   }
   body.innerHTML = images.length ? "" :
     '<tr><td colspan="5" class="muted">No images yet — push to your repo to trigger a build.</td></tr>';
+  // one row per application (ECR repository): its newest build; earlier builds
+  // (the original and each AI-fix rebuild) fold underneath it
+  const groups = new Map();
   images.forEach(i => {
-    const tr = document.createElement("tr");
-    tr.className = "selectable" + (i.image === current.image ? " selected" : "");
-    const fixOf = i.source_image ? `<br><span class="chip fix">AI fix of ${esc(i.source_image)}</span>` : "";
-    tr.innerHTML = `<td><strong>${esc(i.image)}</strong>${fixOf}</td>
-      <td class="muted small-text">${i.branch ? `<code>${esc(i.branch)}</code><br>` : ""}${esc(short(i.commit))}</td>
-      <td>${scanCell(i)}</td>
-      <td style="text-align:center">${esc(i.finding_count)}</td>
-      <td><button class="small">Open</button></td>`;
-    tr.onclick = () => selectImage(i.image);
+    const repo = i.repo || i.image.split(":")[0];
+    if (!groups.has(repo)) groups.set(repo, []);
+    groups.get(repo).push(i);           // already newest first
+  });
+  groups.forEach((builds, repo) => {
+    const [latest, ...older] = builds;
+    if (older.some(i => i.image === current.image)) expandedRepos.add(repo);
+    const open = expandedRepos.has(repo);
+    const toggle = older.length
+      ? `<br><a href="#" class="small-text builds-toggle">${open ? "▾" : "▸"} ${older.length} earlier build${older.length > 1 ? "s" : ""}</a>`
+      : "";
+    const tr = imageRow(latest, toggle);
+    const link = tr.querySelector(".builds-toggle");
+    if (link) link.onclick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      open ? expandedRepos.delete(repo) : expandedRepos.add(repo);
+      loadImages();
+    };
     body.appendChild(tr);
+    if (open) older.forEach(i => body.appendChild(imageRow(i, "", true)));
   });
   // keep refreshing while anything is building/scanning
   clearTimeout(imagesTimer);
