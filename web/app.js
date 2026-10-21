@@ -62,13 +62,41 @@ function scanCell(i) {
 }
 
 const expandedRepos = new Set();
+const isFixBranch = (i) => (i.branch || "").startsWith("fix/");
 
-function imageRow(i, extra, earlier) {
+/* builds of one app (newest first) ->
+     main:       the newest build NOT from a fix/ branch (what ships)
+     candidates: the newest build of each fix/ branch pushed after it (PR not merged yet)
+     earlier:    everything else (history, folded) */
+function splitBuilds(builds) {
+  const main = builds.find(i => !isFixBranch(i)) || builds[0];
+  const since = main.pushedAt || "";
+  const seen = new Set(), candidates = [];
+  builds.forEach(i => {
+    if (i === main || !isFixBranch(i) || (i.pushedAt || "") <= since || seen.has(i.branch)) return;
+    seen.add(i.branch);
+    candidates.push(i);
+  });
+  return { main, candidates, earlier: builds.filter(i => i !== main && !candidates.includes(i)) };
+}
+
+function gateChip(i) {
+  if (i.scan_status === "SCANNING") return '<span class="muted small-text">scanning…</span>';
+  if (i.approved_tag || i.gate_verdict === "CLEAR") return '<span class="chip ok">passes gate</span>';
+  if (i.gate_verdict === "BLOCKED") return '<span class="chip sev-HIGH">blocked</span>';
+  return "";
+}
+
+function imageRow(i, extra, kind) {
   const tr = document.createElement("tr");
-  tr.className = "selectable" + (earlier ? " earlier" : "") + (i.image === current.image ? " selected" : "");
-  const fixOf = i.source_image ? `<br><span class="chip fix">AI fix of ${esc(i.source_image.split(":")[1] || i.source_image)}</span>` : "";
-  const name = earlier ? `↳ ${esc(i.image.split(":")[1] || i.image)}` : `<strong>${esc(i.image)}</strong>`;
-  tr.innerHTML = `<td>${name}${fixOf}${extra}</td>
+  tr.className = "selectable" + (kind ? " " + kind : "") + (i.image === current.image ? " selected" : "");
+  const tag = esc(i.image.split(":")[1] || i.image);
+  const fixOf = i.source_image ? ` <span class="chip fix">AI fix of ${esc(i.source_image.split(":")[1] || i.source_image)}</span>` : "";
+  const name = kind === "candidate"
+    ? `↳ <span class="small-text">fix candidate</span> ${tag} ${gateChip(i)}<br><span class="muted small-text">not on main yet: merge its PR to ship it</span>`
+    : kind === "earlier" ? `↳ ${tag}${fixOf ? "<br>" + fixOf : ""}`
+    : `<strong>${esc(i.image)}</strong>${fixOf ? "<br>" + fixOf : ""}`;
+  tr.innerHTML = `<td>${name}${extra}</td>
     <td class="muted small-text">${i.branch ? `<code>${esc(i.branch)}</code><br>` : ""}${esc(short(i.commit))}</td>
     <td>${scanCell(i)}</td>
     <td style="text-align:center">${esc(i.finding_count)}</td>
@@ -88,8 +116,8 @@ async function loadImages() {
   }
   body.innerHTML = images.length ? "" :
     '<tr><td colspan="5" class="muted">No images yet — push to your repo to trigger a build.</td></tr>';
-  // one row per application (ECR repository): its newest build; earlier builds
-  // (the original and each AI-fix rebuild) fold underneath it
+  // one row per application (ECR repository): its newest main build; unmerged
+  // AI-fix builds listed under it as candidates; older builds folded
   const groups = new Map();
   images.forEach(i => {
     const repo = i.repo || i.image.split(":")[0];
@@ -97,13 +125,16 @@ async function loadImages() {
     groups.get(repo).push(i);           // already newest first
   });
   groups.forEach((builds, repo) => {
-    const [latest, ...older] = builds;
-    if (older.some(i => i.image === current.image)) expandedRepos.add(repo);
+    const { main, candidates, earlier } = splitBuilds(builds);
+    if (earlier.some(i => i.image === current.image)) expandedRepos.add(repo);
     const open = expandedRepos.has(repo);
-    const toggle = older.length
-      ? `<br><a href="#" class="small-text builds-toggle">${open ? "▾" : "▸"} ${older.length} earlier build${older.length > 1 ? "s" : ""}</a>`
+    const passing = candidates.some(i => i.approved_tag || i.gate_verdict === "CLEAR");
+    const hint = main.gate_verdict === "BLOCKED" && passing
+      ? '<br><span class="small-text ok-text">✓ a fix candidate below passes the gate</span>' : "";
+    const toggle = earlier.length
+      ? `<br><a href="#" class="small-text builds-toggle">${open ? "▾" : "▸"} ${earlier.length} earlier build${earlier.length > 1 ? "s" : ""}</a>`
       : "";
-    const tr = imageRow(latest, toggle);
+    const tr = imageRow(main, hint + toggle);
     const link = tr.querySelector(".builds-toggle");
     if (link) link.onclick = (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -111,7 +142,8 @@ async function loadImages() {
       loadImages();
     };
     body.appendChild(tr);
-    if (open) older.forEach(i => body.appendChild(imageRow(i, "", true)));
+    candidates.forEach(i => body.appendChild(imageRow(i, "", "candidate")));
+    if (open) earlier.forEach(i => body.appendChild(imageRow(i, "", "earlier")));
   });
   // keep refreshing while anything is building/scanning
   clearTimeout(imagesTimer);
