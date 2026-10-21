@@ -61,7 +61,9 @@ def start_scan(image):
         record = ci.inspector_scan(record)
         return _resp(200, {"scan": store.get_scan(record["scan_id"])})
     scan = scanner.new_scan(image, account=_image_account(image))
-    if wiz_source.WIZ_MOCK:
+    # the mock only knows its sample images: a real CodeBuild scanner (trivy, or
+    # wizcli) always wins, otherwise a re-scan would "resolve" every real finding
+    if wiz_source.WIZ_MOCK and ci.SCANNER not in ci.CODEBUILD_SCANNERS:
         scan = scanner.run_mock(scan)
     else:
         scan["mode"] = ci.SCANNER if ci.SCANNER in ci.CODEBUILD_SCANNERS else "wizcli"

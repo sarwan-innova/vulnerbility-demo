@@ -133,7 +133,10 @@ class ComputeStack(Stack):
             rule_name=f"{prefix}-schedule",
             schedule=events.Schedule.rate(Duration.hours(1)),
         )
-        schedule_rule.add_target(targets.LambdaFunction(ingest))
+        # Only pull from Wiz on a schedule when Wiz is real: with the mock, the
+        # hourly pull would load fake sample images into the console.
+        if not wiz_mock:
+            schedule_rule.add_target(targets.LambdaFunction(ingest))
         schedule_rule.add_target(targets.SfnStateMachine(state_machine))
 
         # on-demand re-sync rule (custom event bus pattern)

@@ -243,3 +243,20 @@ def test_ci_scanner_trivy_runs_the_codebuild_scan(real_app, monkeypatch):
                             "source": "https://github.com/o/r", "base_ref": BASE_REF})
     scan = app.store.get_scan(rec["scan_id"])
     assert scan["mode"] == "trivy" and scan["buildId"] and scan["status"] == "RUNNING"
+
+
+def test_rescan_uses_trivy_even_when_wiz_is_mock(real_app, monkeypatch):
+    """Regression: with WIZ_MOCK=true (no Wiz creds) and scanner=trivy, Re-scan of
+    a CI image must go to the CodeBuild scan — the mock would resolve every finding."""
+    import ci
+    app, engine = real_app
+    image = app.seed()["image"]
+    scan_mod = app.handlers["scan"]
+    monkeypatch.setattr(scan_mod.wiz_source, "WIZ_MOCK", True)
+    monkeypatch.setattr(ci, "SCANNER", "trivy")
+    before = len(app.call("GET /image-findings", query={"image": image})[1]["findings"])
+    code, body = app.call("POST /scan", body={"image": image})
+    assert code == 202 and body["scan"]["mode"] == "trivy" and body["scan"]["buildId"]
+    app.call("GET /scan/{id}", {"id": body["scan"]["id"]})
+    after = len(app.call("GET /image-findings", query={"image": image})[1]["findings"])
+    assert before == after == 5
