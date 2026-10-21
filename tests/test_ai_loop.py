@@ -344,7 +344,7 @@ def wait_fix(app, fix_id, done=lambda s: s["fix"]["status"] != "RUNNING"):
 
 def test_push_build_scan_fix_push_rescan(loop):
     seeded = loop.seed()
-    assert seeded["source"] == "mock repo scanner" and seeded["ingested"] == 23
+    assert seeded["source"] == "mock repo scanner" and seeded["ingested"] == 24   # 23 CVEs + DS026
     img = seeded["image"]
     rec = loop.call("GET /images")[1]["images"][0]
     assert rec["branch"] == "main" and rec["github"] == "innova-demo/vuln-api" and rec["scan_status"] == "DONE"
@@ -368,10 +368,20 @@ def test_push_build_scan_fix_push_rescan(loop):
     loop.wait_for_builds()
     s = wait_fix(loop, fix_id, lambda s: (s.get("rebuilt") or {}).get("scan_status") == "DONE")
     assert s["fix"]["before"]["verdict"] == "BLOCKED"
-    assert s["rebuilt"]["after"] == {"total": 2, "by_severity": {"MEDIUM": 2}, "blocking": 0,
-                                     "verdict": "CLEAR"}
+    assert s["rebuilt"]["after"] == {"total": 3, "by_severity": {"MEDIUM": 2, "LOW": 1},
+                                     "blocking": 0, "verdict": "CLEAR"}
     rows = {r["image"]: r for r in loop.call("GET /images")[1]["images"]}
     assert rows[s["rebuilt"]["image"]]["source_image"] == img
+
+    # the gate binds: failing status check on the vulnerable commit, passing on the
+    # fix commit; only the CLEAR image carries an approved- tag in ECR
+    repo, ctx = "innova-demo/vuln-api", "security/vuln-gate"
+    assert loop.github.statuses[(repo, rows[img]["commit"], ctx)]["state"] == "failure"
+    assert loop.github.statuses[(repo, f["fix_commit"], ctx)]["state"] == "success"
+    new_tag = s["rebuilt"]["image"].split(":")[1]
+    assert ("demo/vuln-api", f"approved-{new_tag}") in loop.ecr.tags
+    assert ("demo/vuln-api", f"approved-{img.split(':')[1]}") not in loop.ecr.tags
+    assert rows[s["rebuilt"]["image"]]["approved_tag"] == f"approved-{new_tag}"
     assert loop.call("POST /fix/{id}/push", {"id": fix_id})[0] == 409    # no double push
 
 

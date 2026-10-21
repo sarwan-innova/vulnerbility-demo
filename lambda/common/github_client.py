@@ -86,6 +86,13 @@ class GitHubClient:
                   {"ref": f"refs/heads/{branch}", "sha": commit["sha"]})
         return commit["sha"]
 
+    def set_commit_status(self, repo, sha, state, context, description, target_url=None):
+        """Commit status check (needs the token's Commit statuses: Read and write)."""
+        body = {"state": state, "context": context, "description": description}
+        if target_url:
+            body["target_url"] = target_url
+        return self._req("POST", f"/repos/{repo}/statuses/{sha}", body)
+
     def open_pull_request(self, repo, head, base, title, body):
         pr = self._req("POST", f"/repos/{repo}/pulls",
                        {"title": title, "head": head, "base": base, "body": body})

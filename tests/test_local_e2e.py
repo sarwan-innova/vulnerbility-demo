@@ -64,7 +64,8 @@ def test_images_and_report_for_one_image(app):
 
     code, body = app.call("GET /image-findings", query={"image": RWD})
     assert code == 200
-    assert body["gate"] == {"block_on": ["CRITICAL", "HIGH"], "verdict": "BLOCKED", "blocking": 3}
+    assert body["gate"] == {"block_on": ["CRITICAL", "HIGH"], "verdict": "BLOCKED", "blocking": 3,
+                            "blocking_by_kind": {"vulnerability": 3}, "waived": 0}
     runc = next(f for f in body["findings"] if f["cve"] == "CVE-2024-21626")
     assert runc["kev"] and runc["fast_tracked"] and runc["epss"] == pytest.approx(0.92)
     assert body["advice"]["mode"] == "deterministic" and "KEV" in body["advice"]["recommendation"]

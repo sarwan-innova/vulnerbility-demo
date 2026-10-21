@@ -109,6 +109,11 @@ if apps:
         "scanner": _flag("scanner", "trivy"),
         "bedrock_model_id": _flag("fix_model_id", "anthropic.claude-opus-5-5"),
         "bedrock_region": _flag("fix_model_region", ""),
+        # the gate posts a status check + approved-<tag> after every scan
+        "gate_enforce": _flag("gate_enforce", "true") != "false",
+        "guardrail": _flag("guardrail", "true") != "false",   # Bedrock Guardrail on Fix with AI
+        "rescan_schedule": _flag("rescan_schedule", "rate(1 day)"),   # "off" disables
+        "console_url": _flag("console_url", ""),   # link target of the GitHub status check
     }
 
 promo = PromotionStack(

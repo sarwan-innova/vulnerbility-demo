@@ -44,6 +44,10 @@ class FixError(Exception):
 
 
 # ---------------------------------------------------------------- context
+def _is_vuln(finding):
+    return (finding.get("kind") or "vulnerability") == "vulnerability"
+
+
 def _is_context_file(path):
     return fix_engine.patcher_for(path) is not None or path.rsplit("/", 1)[-1] in (
         "pyproject.toml", "Pipfile", "pom.xml", "build.gradle", "go.mod", "Gemfile")
@@ -63,7 +67,8 @@ def select_context(listing, read, findings, root=""):
             files[f["path"]] = read(f["path"])
             total += len(files[f["path"]])
     # source files that import a vulnerable app-layer package (for breaking API changes)
-    names = {(x.get("package") or "").lower() for x in findings if x.get("layerType") == "app"}
+    names = {(x.get("package") or "").lower() for x in findings
+             if x.get("layerType") == "app" and _is_vuln(x)}
     patterns = [re.compile(r"\b" + re.escape(n.replace("-", "_")) + r"\b") for n in names if n]
     picked = 0
     for f in usable:
@@ -93,6 +98,12 @@ Produce the smallest change set that removes the vulnerabilities:
   version listed for every CVE on that package (use the highest one). Do not
   invent versions that are not listed.
 - If a bump changes an API the code uses, update that code so it still works.
+- Misconfiguration findings (kind "misconfig", e.g. DS002 "runs as root"): fix
+  them in the Dockerfile when the fix is clear (for example add a non-root USER
+  that the app can still run as); otherwise list them as not addressed.
+- Secret findings (kind "secret"): you cannot rotate credentials. If the secret
+  sits in a provided file, remove it from that file; otherwise list it as not
+  addressed and say it must be removed from the image and rotated.
 - Only edit files that were provided. Never add credentials, URLs, or
   unrelated refactors. Keep formatting and comments.
 - For each changed file return its COMPLETE new content.
@@ -123,8 +134,8 @@ FIX_SCHEMA = {
     "additionalProperties": False,
 }
 
-FINDING_FIELDS = ("cve", "severity", "package", "installedVersion", "fixedVersion",
-                  "layerType", "baseImage", "kev", "epss")
+FINDING_FIELDS = ("cve", "kind", "title", "severity", "package", "installedVersion",
+                  "fixedVersion", "layerType", "baseImage", "kev", "epss", "location", "resolution")
 
 
 def build_user_message(image, findings, base_images, files):
@@ -212,6 +223,11 @@ def propose_with_claude(image, findings, base_images, files, client=None):
     usage = getattr(message, "usage", None)
     if usage is not None:
         proposal["usage"] = {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+    # for the invocation log (ai_fix handler): which request produced this fix
+    proposal["invocation"] = {"request_id": getattr(message, "_request_id", None),
+                              "message_id": getattr(message, "id", None),
+                              "stop_reason": message.stop_reason, "region": REGION,
+                              "effort": EFFORT}
     return proposal
 
 
@@ -298,7 +314,7 @@ def validate(proposal, files, findings, base_images):
     for path, content in final.items():
         pins.update(_pins(path, content))
     for f in findings:
-        if f.get("layerType") == "app" and f.get("fixedVersion"):
+        if f.get("layerType") == "app" and f.get("fixedVersion") and _is_vuln(f):
             have = pins.get((f.get("package") or "").lower())
             if have and fix_engine.version_key(have) < fix_engine.version_key(f["fixedVersion"]):
                 warnings.append(f"{f['cve']}: {f['package']} still pinned at {have} "
@@ -307,7 +323,8 @@ def validate(proposal, files, findings, base_images):
                 warnings.append(f"{f['cve']}: {f['package']} is not pinned in any manifest "
                                 "(transitive or from the base image) — the re-scan will tell")
     dockerfiles = {p: c for p, c in final.items() if fix_engine.patcher_for(p) == "dockerfile"}
-    for base in {f.get("baseImage") for f in findings if f.get("layerType") == "base" and f.get("baseImage")}:
+    for base in {f.get("baseImage") for f in findings
+                 if f.get("layerType") == "base" and f.get("baseImage") and _is_vuln(f)}:
         tag = (base_images.get(base) or {}).get("fixed_tag_available")
         if not tag or tag == "<fixed>":
             warnings.append(f"no fixed tag known for base image {base}")

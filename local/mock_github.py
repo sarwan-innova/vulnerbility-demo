@@ -15,6 +15,7 @@ class MockGitHub:
         self.commits = {}        # sha -> {"files": {path: text}, "parent", "message", "repo"}
         self.branches = {}       # (repo, branch) -> sha
         self.pulls = []
+        self.statuses = {}       # (repo, sha, context) -> {"state", "description", "target_url"}
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------ helpers
@@ -67,6 +68,12 @@ class MockGitHub:
         if self.on_push:
             self.on_push(repo, branch, sha)
         return sha
+
+    def set_commit_status(self, repo, sha, state, context, description, target_url=None):
+        with self._lock:
+            self.statuses[(repo, sha, context)] = {"state": state, "description": description,
+                                                   "target_url": target_url}
+        return {"state": state}
 
     def open_pull_request(self, repo, head, base, title, body):
         with self._lock:

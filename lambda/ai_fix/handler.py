@@ -15,6 +15,7 @@ Async worker (Lambda invokes itself with {"fix_worker": id}):
 Nothing reaches the base branch: the push creates a new fix/ branch and a pull
 request; the branch push triggers the normal build -> ECR -> scan loop.
 """
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,7 @@ sys.path.insert(0, "/opt/python")
 import ai_fixer  # noqa: E402
 import core  # noqa: E402
 import github_client  # noqa: E402
+import guardrail  # noqa: E402
 import store  # noqa: E402
 import wiz_source  # noqa: E402
 
@@ -141,20 +143,65 @@ def work(fix_id):
         files, notes = ai_fixer.select_context(
             listing, lambda p: gh.read_file(fix["github"], p, fix["commit"]), findings,
             root=fix.get("context", BUILD_CONTEXT))
+        files, held, guard_in = guardrail.screen_files(files)       # Bedrock Guardrail: INPUT
+        notes += held
+        started = time.time()
         proposal = ai_fixer.propose(fix["image"], findings, base_images, files)
+        latency = round(time.time() - started, 1)
         validation = ai_fixer.validate(proposal, files, findings, base_images)
+        guard_errors, guard_out = guardrail.screen_output(proposal, files)  # Guardrail: OUTPUT
+        validation["errors"] += guard_errors
         store.put_json_report(_proposal_key(fix_id), {
             "proposal": proposal, "files_sent": sorted(files), "notes": notes,
             "diffs": ai_fixer.diffs(files, proposal), "validation": validation})
+        log_invocation(fix, findings, base_images, files, proposal, latency,
+                       guard_in + guard_out)
         fix.update(status="READY", finishedAt=_now(), summary=proposal.get("summary"),
                    mode=proposal.get("mode"), model=proposal.get("model"),
                    changed_files=[c["path"] for c in proposal.get("changes") or []],
                    addressed=[a["cve"] for a in proposal.get("addressed") or []],
-                   errors=validation["errors"], warnings=validation["warnings"])
+                   errors=validation["errors"], warnings=validation["warnings"],
+                   guardrail=_guard_summary(guard_in + guard_out),
+                   invocation_log=_log_key(fix))
     except Exception as e:  # surface model/GitHub failures in the console
         fix.update(status="FAILED", finishedAt=_now(), error=f"{type(e).__name__}: {str(e)[:500]}")
     store.put_fix(fix)
     return {"fix": fix_id, "status": fix["status"]}
+
+
+# ---------------------------------------------------------------- invocation log
+def _log_key(fix):
+    return f"ai-invocations/{fix['createdAt'][:10]}/{fix['id']}.json"
+
+
+def _guard_summary(entries):
+    if not guardrail.enabled():
+        return {"enabled": False}
+    return {"enabled": True, "id": guardrail.GUARDRAIL_ID, "version": guardrail.GUARDRAIL_VERSION,
+            "checked": len(entries),
+            "interventions": [{"path": e["path"], "source": e["source"], "reasons": e["reasons"]}
+                              for e in entries if e["intervened"]]}
+
+
+def log_invocation(fix, findings, base_images, files, proposal, latency, guard):
+    """Every model call is recorded: the exact prompt and response in S3
+    (ai-invocations/<date>/<fix>.json, private bucket) and a metadata line in
+    CloudWatch Logs (no file contents there)."""
+    if proposal.get("mode") != "bedrock":
+        return
+    prompt = ai_fixer.build_user_message(fix["image"], findings, base_images, files)
+    meta = {"event": "ai_fix_invocation", "fix_id": fix["id"], "image": fix["image"],
+            "requested_by": fix.get("requestedBy"), "model": proposal.get("model"),
+            "latency_s": latency, "usage": proposal.get("usage"),
+            **(proposal.get("invocation") or {}),
+            "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+            "files_sent": {p: hashlib.sha256(t.encode()).hexdigest() for p, t in sorted(files.items())},
+            "guardrail": _guard_summary(guard), "at": _now()}
+    print(json.dumps(meta, default=str))
+    store.put_json_report(_log_key(fix), {
+        **meta, "system": ai_fixer.SYSTEM, "prompt": prompt, "guardrail_checks": guard,
+        "response": {k: proposal.get(k) for k in ("summary", "changes", "addressed",
+                                                   "not_addressed", "risks")}})
 
 
 def status(fix_id):

@@ -18,7 +18,8 @@ sys.path.insert(0, "/opt/python")
 import store  # noqa: E402
 
 RECORD_FIELDS = ("commit", "branch", "github", "pushedAt", "scan_status", "scan_summary",
-                 "scanner", "fix_id", "source_image", "digest")
+                 "scanner", "fix_id", "source_image", "digest", "gate_verdict", "approved_tag",
+                 "scanned_at")
 
 
 def handler(event, context):

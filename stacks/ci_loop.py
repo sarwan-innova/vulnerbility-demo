@@ -8,8 +8,12 @@ app, or `-c apps_file=ci-apps.json` for several). PER APP:
     pushes <ecr repo>:<short sha>
   * an ECR repository
 Shared: ECR enhanced scanning / Amazon Inspector when scanner=inspector,
-  * EventBridge -> ciEventsFn: ECR push, Inspector scan done, wizscan finished
-  * aiFixFn: Fix with AI (Claude in Amazon Bedrock) + Push fix (GitHub branch + PR)
+  * EventBridge -> ciEventsFn: ECR push, Inspector scan done, wizscan finished,
+    and a daily schedule that re-scans each repo's newest image
+  * the gate after every scan: GitHub status check `security/vuln-gate` on the
+    commit + ECR tag approved-<tag> only while the image is CLEAR
+  * aiFixFn: Fix with AI (Claude in Amazon Bedrock) + Push fix (GitHub branch + PR),
+    screened by a Bedrock Guardrail; every model call logged to S3 ai-invocations/
 
 Before deploying, create the GitHub token secret (CodeBuild's webhook needs it
 at deploy time):  {"token": "<fine-grained PAT>"}  — see README "Deploy the loop".
@@ -19,6 +23,7 @@ import re
 
 from aws_cdk import (
     Duration, RemovalPolicy, SecretValue,
+    aws_bedrock as bedrock,
     aws_codebuild as codebuild,
     aws_ecr as ecr,
     aws_events as events,
@@ -69,8 +74,36 @@ def _ids(app, first):
     return suffix, (None if first else slug[:60])
 
 
+def _guardrail(stack, prefix):
+    """INPUT: prompt-injection attempts in repo files; INPUT + OUTPUT: AWS access
+    keys, private keys and GitHub tokens. Applied by the ai_fix Lambda with
+    ApplyGuardrail (lambda/common/guardrail.py)."""
+    def regex(name, pattern):
+        return bedrock.CfnGuardrail.RegexConfigProperty(name=name, pattern=pattern, action="BLOCK")
+    g = bedrock.CfnGuardrail(
+        stack, "AiFixGuardrail", name=f"{prefix}-ai-fix",
+        description="Fix with AI: prompt-attack + credential filters",
+        blocked_input_messaging="Blocked by the Fix with AI guardrail (input).",
+        blocked_outputs_messaging="Blocked by the Fix with AI guardrail (output).",
+        content_policy_config=bedrock.CfnGuardrail.ContentPolicyConfigProperty(filters_config=[
+            bedrock.CfnGuardrail.ContentFilterConfigProperty(
+                type="PROMPT_ATTACK", input_strength="HIGH", output_strength="NONE")]),
+        sensitive_information_policy_config=bedrock.CfnGuardrail.SensitiveInformationPolicyConfigProperty(
+            pii_entities_config=[bedrock.CfnGuardrail.PiiEntityConfigProperty(
+                type="AWS_ACCESS_KEY", action="BLOCK")],
+            regexes_config=[
+                regex("private-key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+                regex("github-token", r"gh[pousr]_[A-Za-z0-9]{36,}"),
+                regex("slack-token", r"xox[baprs]-[A-Za-z0-9-]{10,}")]),
+    )
+    version = bedrock.CfnGuardrailVersion(stack, "AiFixGuardrailVersion",
+                                          guardrail_identifier=g.attr_guardrail_id,
+                                          description="deployed by CDK")
+    return g, version
+
+
 def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project, cfg):
-    """Returns (AI-fix Lambda, [(app, build project, ECR repo)])."""
+    """Returns (AI-fix Lambda, [(app, build project, ECR repo)], grant_gate(fn))."""
     gh_secret = secrets.Secret.from_secret_name_v2(stack, "GitHubSecret", cfg["github_secret"])
     creds = codebuild.GitHubSourceCredentials(
         stack, "GitHubCreds",
@@ -146,12 +179,32 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
         resources=[wizscan_project.project_arn]))
     report_bucket.grant_read_write(ci_fn)
 
+    # ---------- gate: GitHub status check + ECR approved-<tag> after every scan ----------
+    def grant_gate(f):
+        f.add_environment("GATE_ENFORCE", "true" if cfg.get("gate_enforce", True) else "false")
+        f.add_environment("GITHUB_SECRET_ARN", gh_secret.secret_arn)
+        if cfg.get("console_url"):
+            f.add_environment("CONSOLE_URL", cfg["console_url"])
+        gh_secret.grant_read(f)
+        f.add_to_role_policy(iam.PolicyStatement(
+            actions=["ecr:BatchGetImage", "ecr:PutImage", "ecr:BatchDeleteImage"],
+            resources=[r.repository_arn for _, _, r in built]))
+    grant_gate(ci_fn)
+
     events.Rule(stack, "EcrPushRule", rule_name=f"{prefix}-ecr-push",
                 event_pattern=events.EventPattern(
                     source=["aws.ecr"], detail_type=["ECR Image Action"],
                     detail={"action-type": ["PUSH"], "result": ["SUCCESS"],
-                            "repository-name": ecr_names}),
+                            "repository-name": ecr_names,
+                            # the gate's own approved-<tag> re-tag is not a new image
+                            "image-tag": [{"anything-but": {"prefix": "approved-"}}]}),
                 targets=[targets.LambdaFunction(ci_fn)])
+    if cfg.get("rescan_schedule", "rate(1 day)") != "off":
+        events.Rule(stack, "RescanSchedule", rule_name=f"{prefix}-rescan",
+                    description="Re-scan each repo's newest image (new CVEs flip the gate)",
+                    schedule=events.Schedule.expression(cfg.get("rescan_schedule", "rate(1 day)")),
+                    targets=[targets.LambdaFunction(
+                        ci_fn, event=events.RuleTargetInput.from_object({"action": "rescan"}))])
     events.Rule(stack, "InspectorScanRule", rule_name=f"{prefix}-inspector-scan",
                 event_pattern=events.EventPattern(
                     source=["aws.inspector2"], detail_type=["Inspector2 Scan"]),
@@ -179,4 +232,10 @@ def add_ci_loop(stack, *, prefix, fn, deps_layer, report_bucket, wizscan_project
     ai_fn.add_to_role_policy(iam.PolicyStatement(          # async self-invoke for the worker
         actions=["lambda:InvokeFunction"],
         resources=[f"arn:aws:lambda:{stack.region}:{stack.account}:function:{prefix}-ai_fix"]))
-    return ai_fn, built
+    if cfg.get("guardrail", True):
+        g, version = _guardrail(stack, prefix)
+        ai_fn.add_environment("GUARDRAIL_ID", g.attr_guardrail_id)
+        ai_fn.add_environment("GUARDRAIL_VERSION", version.attr_version)
+        ai_fn.add_to_role_policy(iam.PolicyStatement(
+            actions=["bedrock:ApplyGuardrail"], resources=[g.attr_guardrail_arn]))
+    return ai_fn, built, grant_gate

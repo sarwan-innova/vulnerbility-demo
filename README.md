@@ -132,6 +132,33 @@ Delete the GitHub secret if you no longer need it.
 | `scanner` | `inspector` | `inspector` (Amazon Inspector) or `wizcli` (Wiz, once the Wiz secret is filled) |
 | `fix_model_id` | `anthropic.claude-opus-5-5` | Bedrock model for Fix with AI |
 | `fix_model_region` | stack region | Bedrock region |
+| `gate_enforce` | `true` | post the gate as a GitHub status check + ECR `approved-<tag>` tag |
+| `console_url` | — | console link on the GitHub status check (the `ConsoleUrl` output) |
+| `rescan_schedule` | `rate(1 day)` | re-scan each repo's newest image; `off` disables |
+| `guardrail` | `true` | Bedrock Guardrail around Fix with AI |
+
+### Security controls
+
+- **Blocking gate.** After every scan (push, console re-scan, daily re-scan), CRITICAL/HIGH findings that aren't waived make the image BLOCKED. The block takes effect in two places:
+  - **GitHub status check** `security/vuln-gate` on the commit, failing or passing.
+    - One-time setup per repo, done by you (the token has no admin rights): **Settings → Branches → Add rule for `main` → Require status checks → `security/vuln-gate`**.
+    - With that rule, a pull request whose image is BLOCKED cannot be merged.
+  - **ECR tag `approved-<tag>`**, which exists only while the image is CLEAR and is removed when a re-scan blocks it.
+    - Deploy from `approved-*` tags only.
+    - The re-tag is filtered out of the push rule, so it doesn't trigger another scan.
+- **Secrets and misconfigurations.** Trivy runs with `--scanners vuln,secret --image-config-scanners misconfig`.
+  - Secrets: credentials baked into any layer. The rule, file, line and layer are stored, but never the secret value.
+  - Misconfigurations: image-config checks such as DS002, "runs as root".
+  - Both appear as findings (SECRET / CONFIG chips) and count toward the gate.
+- **Daily re-scan.** An EventBridge schedule re-scans the newest image of each repo with a fresh vulnerability database, so a CVE published after the push still flips the gate.
+- **Bedrock Guardrail around Fix with AI.** It is called through `ApplyGuardrail`, separately from the model call (`lambda/common/guardrail.py`).
+  - **Input:** every repo file is screened before the model sees it, for prompt-injection text, AWS access keys, private keys and GitHub/Slack tokens. A flagged file is withheld from the model.
+  - **Output:** the lines the model adds, plus its summary, are screened. An intervention blocks Push.
+  - If the guardrail call fails, the fix fails. It is never skipped.
+- **Invocation log.** Every model call is recorded:
+  - The exact system prompt, prompt and response, the request id, token usage, and the guardrail result go to the reports bucket at `ai-invocations/<date>/<fix>.json`.
+  - A line without file contents goes to CloudWatch Logs.
+  - All of this stays inside the stack; nothing changes account-wide.
 
 ### How the loop is built
 
@@ -144,6 +171,8 @@ Delete the GitHub secret if you no longer need it.
 | Fix with AI: repo context, Claude call (`submit_fix` tool), validation, diffs | `lambda/common/ai_fixer.py` |
 | Fix / status / push routes, async worker, PR body | `lambda/ai_fix` |
 | GitHub: read commit, commit to new branch, open PR | `lambda/common/github_client.py` |
+| Gate verdict + enforcement (status check, approved- tag) | `lambda/common/gate.py` |
+| Bedrock Guardrail (input/output screening) | `lambda/common/guardrail.py` |
 | Console | `web/` |
 
 **How the Claude call is made.**

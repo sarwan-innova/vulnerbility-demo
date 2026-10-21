@@ -103,8 +103,10 @@ def _trivyscan_buildspec():
                 'docker image inspect "$BASE" --format \'{{json .RootFS.Layers}}\' > base_layers.json; '
                 'else echo "[]" > base_layers.json; fi',
                 'aws s3 cp "$TOOLING_S3" tooling/ --recursive',
-                'trivy image --quiet --scanners vuln --ignore-unfixed --format json '
-                '--output trivy.json "$IMAGE_URI"',
+                # vulnerabilities (fixable only) + secrets in every layer +
+                # misconfigurations of the image config (root user, ...)
+                'trivy image --quiet --scanners vuln,secret --image-config-scanners misconfig '
+                '--ignore-unfixed --format json --output trivy.json "$IMAGE_URI"',
                 'trivy image --quiet --format cyclonedx --output sbom.cdx.json "$IMAGE_URI"',
                 'python3 tooling/convert_trivy.py trivy.json base_layers.json "$BASE" results.json',
                 'aws s3 cp results.json "$OUTPUT_PREFIX/results.json"',
@@ -281,13 +283,13 @@ class PromotionStack(Stack):
 
         # ---------- Lambdas ----------
         # ---------- CI loop: push -> build -> ECR -> scan -> AI fix -> push (opt-in) ----------
-        ai_fix_fn = None
+        ai_fix_fn = grant_gate = None
         if ci_loop and report_bucket is not None:
             deps_layer = lambda_.LayerVersion(
                 self, "DepsLayer", code=deps_layer_code(),
                 compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
                 description="Third-party packages (Anthropic SDK)")
-            ai_fix_fn, built = add_ci_loop(
+            ai_fix_fn, built, grant_gate = add_ci_loop(
                 self, prefix=prefix, fn=fn, deps_layer=deps_layer, report_bucket=report_bucket,
                 wizscan_project=wizscan_project, cfg=ci_loop)
             CfnOutput(self, "AppBuildProject", value=built[0][1].project_name)
@@ -313,6 +315,8 @@ class PromotionStack(Stack):
         agent_verifier_fn = fn("AgentVerifierFn", "agent_verifier")
 
         scan_fn.add_environment("WIZ_SCAN_PROJECT", wizscan_project.project_name)
+        if grant_gate:  # a console re-scan finishing here enforces the gate too
+            grant_gate(scan_fn)
         if ci_loop:  # re-scan of a CI image uses the same scanner as the push-triggered scan
             scan_fn.add_environment("SCANNER", ci_loop["scanner"])
             scan_fn.add_to_role_policy(iam.PolicyStatement(

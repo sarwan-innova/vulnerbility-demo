@@ -14,16 +14,18 @@ sys.path.insert(0, "/opt/python")
 import agent_core  # noqa: E402
 import ai_fixer  # noqa: E402
 import core  # noqa: E402
+import gate  # noqa: E402
 import promotion  # noqa: E402
 import store  # noqa: E402
 
 FIELDS = ("cve", "severity", "layerType", "baseImage", "package", "installedVersion",
           "fixedVersion", "kev", "epss", "sla_status", "sla_remaining_days", "age_days",
-          "fast_tracked", "priority_score", "fix_hint", "source")
+          "fast_tracked", "priority_score", "fix_hint", "source", "kind", "title", "location")
 
 
 SOURCE_FIELDS = ("commit", "branch", "github", "pushedAt", "scanner", "scan_status", "scan_error",
-                 "fix_id", "source_image", "last_fix_id")
+                 "fix_id", "source_image", "last_fix_id", "gate_verdict", "gate_status_check",
+                 "approved_tag", "gate_error", "gate_checked_at", "scanned_at")
 
 
 def handler(event, context):
@@ -41,7 +43,7 @@ def handler(event, context):
     advice = agent_core.invoke_agent("triage", {"image": image, "findings": [
         {k: f.get(k) for k in ("cve", "severity", "kev", "epss", "layerType", "sla_status")}
         for f in findings]}) if findings else None
-    blocking = [f for f in findings if f["severity"] in policy["gate"]["block_on"]]
+    verdict = gate.evaluate(image, findings, policy)
     scan = store.get_latest_scan(image)
     record = store.get_image(image)
 
@@ -50,9 +52,7 @@ def handler(event, context):
         "findings": [{k: f.get(k) for k in FIELDS} for f in findings],
         "plan": plan,
         "advice": advice,
-        "gate": {"block_on": policy["gate"]["block_on"],
-                 "verdict": "BLOCKED" if blocking else "CLEAR",
-                 "blocking": len(blocking)},
+        "gate": verdict,
         "latest_scan": ({k: scan.get(k) for k in ("id", "status", "finishedAt", "summary", "mode")}
                         if scan else None),
         "source": ({k: record.get(k) for k in SOURCE_FIELDS} if record else None),

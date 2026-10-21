@@ -33,6 +33,8 @@ def plan_remediation(image, findings, base_images):
     Base-layer findings -> rebuild on the fixed base tag (fixes many at once).
     App-layer findings  -> record the dependency bumps required.
     """
+    # secrets / misconfigurations are not fixed by a version bump
+    findings = [f for f in findings if (f.get("kind") or "vulnerability") == "vulnerability"]
     base_findings = [f for f in findings if f.get("layerType") == "base"]
     app_findings = [f for f in findings if f.get("layerType") == "app"]
 

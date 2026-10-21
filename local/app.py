@@ -71,7 +71,7 @@ class LocalApp:
         import memstore
         sys.modules["store"] = memstore
         # common modules hold `import store` references: reload them on top of memstore
-        for name in ("scanner", "wiz_source", "agent_core", "ci", "ai_fixer"):
+        for name in ("scanner", "wiz_source", "agent_core", "ci", "ai_fixer", "gate"):
             sys.modules.pop(name, None)
         self.store = memstore
         self.step_delay = step_delay
@@ -94,6 +94,11 @@ class LocalApp:
         self.github = MockGitHub(on_push=self._on_git_push)
         self.cb = self.codebuild if self.real else MockCodeBuild(self.store)
         ci._clients["codebuild"] = self.cb                  # wizscan project
+        from mock_ecr import MockEcr
+        self.ecr = MockEcr()                                # approved-<tag> tags
+        ci._clients["ecr"] = self.ecr
+        ci._github = self.github                            # gate status checks
+        ci.GATE_ENFORCE = True
         self.handlers["scan"]._cb = self.cb
         self.handlers["ci_events"].describe_image = self._describe_image
         fixer = self.handlers["ai_fix"]
@@ -130,6 +135,7 @@ class LocalApp:
                     self.codebuild.build(tmp, image_uri)
             else:
                 self.cb.register(image_uri, files)
+            self.ecr.push(ecr_repo, tag, digest)
             self.image_meta[(ecr_repo, digest)] = {
                 "commit": sha, "branch": branch, "source": f"https://github.com/{repo}",
                 "base_ref": base_ref(files), "base_layers": [], "context": "."}

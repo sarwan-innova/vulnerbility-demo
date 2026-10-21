@@ -315,7 +315,51 @@ def normalize_wizcli_result(result, image, base_image_names=(), scanned_at=None)
                     "firstSeen": scanned_at,
                     "lastSeen": scanned_at,
                     "mutableTag": tag.lower() in MUTABLE_TAGS,
+                    "kind": "vulnerability",
                 })
+    out += _secret_findings(body, repo, tag, base_image_names, scanned_at)
+    out += _misconfig_findings(body, repo, tag, scanned_at)
+    return out
+
+
+def _non_cve(repo, tag, rule, location, scanned_at, **extra):
+    """Shared fields of a secret / misconfiguration finding: no package and no fixed
+    version; `cve` holds the rule id so ids, the gate and re-scan resolution work alike."""
+    return {"id": finding_key(repo, tag, rule, location), "source": "wizcli", "cve": rule,
+            "status": "OPEN", "repo": repo, "imageTag": tag, "package": location,
+            "location": location, "installedVersion": None, "fixedVersion": None,
+            "kev": False, "hasExploit": False, "epss": 0.0,
+            "firstSeen": scanned_at, "lastSeen": scanned_at,
+            "mutableTag": tag.lower() in MUTABLE_TAGS, **extra}
+
+
+def _secret_findings(body, repo, tag, base_image_names, scanned_at):
+    out = []
+    for s in body.get("secrets") or []:   # trivy_adapter shape (wizcli: type / lineNumber)
+        rule = s.get("rule") or s.get("type") or "secret"
+        line = s.get("line") or s.get("lineNumber")
+        location = (s.get("path") or "?") + (f":{line}" if line else "")
+        layer = s.get("layerMetadata") or {}
+        is_base = bool(layer.get("isBaseLayer"))
+        out.append(_non_cve(
+            repo, tag, f"SECRET-{rule}", location, scanned_at, kind="secret",
+            severity=_severity(s.get("severity") or "High"),
+            title=s.get("title") or s.get("description") or f"Secret ({rule})",
+            layerType="base" if is_base else "app", layerSource="wiz",
+            baseImage=(resolve_base_image(layer.get("details"), base_image_names)
+                       if is_base else None)))
+    return out
+
+
+def _misconfig_findings(body, repo, tag, scanned_at):
+    out = []
+    for m in body.get("misconfigurations") or []:
+        rule = m.get("rule") or m.get("id") or "misconfig"
+        out.append(_non_cve(
+            repo, tag, rule, m.get("target") or "image config", scanned_at, kind="misconfig",
+            severity=_severity(m.get("severity") or "Medium"),
+            title=m.get("title") or rule, resolution=m.get("resolution"),
+            message=m.get("message"), layerType="app", layerSource="config", baseImage=None))
     return out
 
 
@@ -336,4 +380,6 @@ def scan_summary(findings):
         "kev": sum(1 for f in findings if f.get("kev")),
         "base_layer": sum(1 for f in findings if f.get("layerType") == "base"),
         "fixable": sum(1 for f in findings if f.get("fixedVersion")),
+        "by_kind": {k: sum(1 for f in findings if (f.get("kind") or "vulnerability") == k)
+                    for k in ("vulnerability", "secret", "misconfig")},
     }

@@ -44,6 +44,9 @@ PKG_DB = {
 }
 
 
+SECRET_RE = re.compile(r"\bAKIA[0-9A-Z]{16}\b")   # demo: AWS access key ids only
+
+
 def base_ref(files):
     froms = re.findall(r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)", files.get("Dockerfile", ""), re.I | re.M)
     return froms[-1] if froms else None
@@ -70,8 +73,16 @@ def scan_files(files):
                     p["vulnerabilities"].append({"name": cve, "severity": sev.capitalize(),
                                                  "fixedVersion": fixed, "hasExploit": False,
                                                  "hasCisaKevExploit": False, "epssProbability": epss})
+    secrets = [{"rule": "aws-access-key-id", "title": "AWS Access Key ID", "severity": "Critical",
+                "path": "/app/" + path, "line": text[:m.start()].count("\n") + 1,
+                "layerMetadata": {"isBaseLayer": False}}
+               for path, text in files.items() for m in SECRET_RE.finditer(text)]
+    misconfig = [] if re.search(r"^\s*HEALTHCHECK\s", files.get("Dockerfile", ""), re.I | re.M) else [
+        {"rule": "DS026", "title": "No HEALTHCHECK defined", "severity": "Low",
+         "target": "Dockerfile", "resolution": "Add a HEALTHCHECK instruction to the Dockerfile"}]
     return {"scanner": "mock-repo-scanner", "baseImage": ref,
-            "result": {"osPackages": list(os_pkgs.values()), "libraries": list(libs.values())}}
+            "result": {"osPackages": list(os_pkgs.values()), "libraries": list(libs.values()),
+                       "secrets": secrets, "misconfigurations": misconfig}}
 
 
 def sbom_files(files):

@@ -113,7 +113,8 @@ class LocalCodeBuild:
         with tempfile.TemporaryDirectory() as tmp:
             tar = os.path.join(tmp, "image.tar")
             self._run(self.engine, "save", "-o", tar, image_uri)
-            args = [self.trivy, "image", "--input", tar, "--scanners", "vuln", "--quiet"]
+            args = [self.trivy, "image", "--input", tar, "--scanners", "vuln,secret",
+                    "--image-config-scanners", "misconfig", "--quiet"]
             if self.ignore_unfixed:
                 args.append("--ignore-unfixed")
             out = os.path.join(tmp, "trivy.json")

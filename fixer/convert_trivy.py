@@ -36,8 +36,11 @@ def main():
     result = trivy_adapter.to_wizcli(raw, base_layers=layers, base_ref=base_ref)
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(result, fh)
-    n = sum(len(p["vulnerabilities"]) for group in result["result"].values() for p in group)
-    print(f"converted {n} vulnerabilities (base: {base_ref}, {len(layers)} base layers)")
+    body = result["result"]
+    n = sum(len(p["vulnerabilities"]) for group in ("osPackages", "libraries") for p in body[group])
+    print(f"converted {n} vulnerabilities, {len(body['secrets'])} secrets, "
+          f"{len(body['misconfigurations'])} misconfigurations "
+          f"(base: {base_ref}, {len(layers)} base layers)")
 
 
 if __name__ == "__main__":

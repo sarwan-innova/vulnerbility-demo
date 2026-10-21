@@ -78,7 +78,15 @@ def enrich(findings, policy, base_images):
 
         stale = bool(f.get("mutableTag") and f.get("runningInProd") and age >= stale_days)
 
-        if f.get("layerType") == "base":
+        kind = f.get("kind") or "vulnerability"
+        if kind == "secret":
+            path = "remove-secret"
+            fix_hint = (f"Remove the secret at {f.get('location')} from the image and rotate it"
+                        + (f" (it comes from base {f.get('baseImage')})" if f.get("baseImage") else ""))
+        elif kind == "misconfig":
+            path = "image-config"
+            fix_hint = f.get("resolution") or f"Fix {f.get('cve')}: {f.get('title')}"
+        elif f.get("layerType") == "base":
             bi = base_images.get(f.get("baseImage"), {})
             path = "base-image-rebuild"
             fix_hint = (f"Rebuild on {f.get('baseImage')}:{bi.get('fixed_tag_available', '<fixed>')}"

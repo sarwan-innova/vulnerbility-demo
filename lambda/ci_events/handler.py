@@ -4,6 +4,8 @@ ciEventsFn — EventBridge target for the push -> build -> scan loop.
   aws.ecr        "ECR Image Action" (PUSH, SUCCESS)      -> register image + start scan
   aws.inspector2 "Inspector2 Scan"                       -> pull findings, finalize scan
   aws.codebuild  "CodeBuild Build State Change" (wizscan) -> finalize/fail the wizcli scan
+  {"action": "rescan"}  (daily EventBridge schedule)     -> re-scan each repo's newest image
+A push of an approved-<tag> tag is the gate's own re-tag, not a new image: skipped.
 """
 import os
 import sys
@@ -13,6 +15,7 @@ sys.path.insert(0, "/opt/python")
 
 import ci  # noqa: E402
 import ecr_meta  # noqa: E402
+import gate  # noqa: E402
 import scanner  # noqa: E402
 import store  # noqa: E402
 
@@ -32,6 +35,8 @@ def on_push(detail, account=None):
     tag = detail.get("image-tag")
     if not tag:
         return {"skipped": "untagged image"}
+    if gate.is_approved_tag(tag):
+        return {"skipped": "gate approval tag"}
     repository, digest = detail["repository-name"], detail["image-digest"]
     record = ci.register_push(repository, tag, digest, describe_image(repository, digest),
                               account=account)
@@ -74,6 +79,8 @@ def on_build_state(detail):
 
 
 def handler(event, context):
+    if event.get("action") == "rescan":
+        return {"rescanned": ci.rescan_latest(event.get("repos"))}
     source, kind = event.get("source"), event.get("detail-type")
     detail = event.get("detail") or {}
     if source == "aws.ecr" and kind == "ECR Image Action":

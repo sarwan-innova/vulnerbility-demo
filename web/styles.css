@@ -66,6 +66,7 @@ label input{vertical-align:middle}
 /* AI fix loop */
 tr.selected td{background:#1f2a3c}
 .chip.ok{background:#34d39922;color:var(--green);border:1px solid var(--green)}
+.chip.kind{background:#60a5fa22;color:var(--accent);border:1px solid var(--accent)}
 .chip.fix{background:#a78bfa22;color:var(--purple);border:1px solid var(--purple);font-weight:600}
 .fixpanel{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
 .note.warn{background:#3d3214;border:1px solid var(--amber)}
