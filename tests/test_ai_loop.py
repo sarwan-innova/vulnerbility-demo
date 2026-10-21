@@ -433,3 +433,43 @@ def test_inspector_event_path(loop, monkeypatch):
     assert {f["cve"]: f["layerType"] for f in body["findings"]}["CVE-2022-40897"] == "base"
     assert ev.handler({"source": "aws.ecr", "detail-type": "ECR Image Action",
                        "detail": {"action-type": "DELETE", "result": "SUCCESS"}}, None)["skipped"]
+
+
+def test_fix_with_ai_switch_blocks_fix_and_push(loop):
+    img = loop.seed()["image"]
+    code, body = loop.call("GET /settings")
+    assert code == 200 and body["settings"]["fix_with_ai"] is True        # default ON
+    assert loop.call("GET /image-findings", query={"image": img})[1]["ai"]["enabled"] is True
+
+    # a proposal made while ON ...
+    fix_id = loop.call("POST /fix", body={"image": img})[1]["fix"]["id"]
+    wait_fix(loop, fix_id)
+
+    # ... then someone turns the feature OFF
+    code, body = loop.call("POST /settings", body={"fix_with_ai": False}, claims={"email": "lead@innova"})
+    assert code == 200 and body["settings"]["fix_with_ai"] is False
+    assert body["settings"]["updatedBy"] == "lead@innova"
+    assert loop.call("GET /image-findings", query={"image": img})[1]["ai"]["enabled"] is False
+
+    code, body = loop.call("POST /fix", body={"image": img})
+    assert code == 403 and "turned off by lead@innova" in body["error"]
+    assert loop.call("POST /fix/{id}/push", {"id": fix_id})[0] == 403    # nothing pushed
+    assert loop.github.pulls == []
+
+    # bad input is rejected; turning it back ON restores the flow and keeps history
+    assert loop.call("POST /settings", body={"fix_with_ai": "yes"})[0] == 400
+    code, body = loop.call("POST /settings", body={"fix_with_ai": True}, claims={"email": "dev@innova"})
+    assert [h["fix_with_ai"] for h in body["settings"]["history"]] == [True, False]
+    assert loop.call("POST /fix/{id}/push", {"id": fix_id})[0] == 200
+
+
+def test_fix_with_ai_default_off(monkeypatch, tmp_path):
+    from app import LocalApp
+    monkeypatch.setenv("FIX_WITH_AI_DEFAULT", "false")
+    a = LocalApp(step_delay=0, ci_loop=True)
+    monkeypatch.setattr(a.store, "S3_DIR", str(tmp_path / "s3"))
+    img = a.seed()["image"]
+    assert a.call("GET /settings")[1]["settings"]["fix_with_ai"] is False
+    assert a.call("POST /fix", body={"image": img})[0] == 403
+    os.environ["WIZ_MOCK"] = "true"
+    os.environ["SCANNER"] = "mock"

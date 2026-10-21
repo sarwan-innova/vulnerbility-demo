@@ -39,7 +39,7 @@ def reset():
         _db.clear()
         _db.update({"findings": {}, "units": {}, "audit": [], "waivers": {}, "base_images": {},
                     "policy": None, "summary": {}, "scans": {}, "latest_scan": {},
-                    "workflows": {}, "events": {}, "images": {}, "fixes": {}})
+                    "workflows": {}, "events": {}, "images": {}, "fixes": {}, "settings": {}})
 
 
 reset()
@@ -112,6 +112,16 @@ def put_base_image(bi):
 def get_policy(default):
     with _lock:
         return _copy(_db["policy"]) if _db["policy"] else default
+
+
+def get_settings():
+    with _lock:
+        return _copy(_db["settings"])
+
+
+def put_settings(settings):
+    with _lock:
+        _db["settings"] = _copy(settings)
 
 
 def put_policy(policy):

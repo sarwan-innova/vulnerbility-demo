@@ -36,6 +36,8 @@ ROUTES = {
     "POST /fix": "ai_fix",
     "GET /fix/{id}": "ai_fix",
     "POST /fix/{id}/push": "ai_fix",
+    "GET /settings": "ai_fix",
+    "POST /settings": "ai_fix",
 }
 LOCAL_SFN = "arn:local:states:::stateMachine:promotion"
 LOCAL_AGENTIC_SFN = "arn:local:states:::stateMachine:promotion-agentic"

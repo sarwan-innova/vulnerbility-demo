@@ -128,6 +128,8 @@ promo = PromotionStack(
     bedrock_guardrail_id=bedrock_guardrail_id,
     secure=secure,
     ci_loop=ci_loop,
+    # -c fix_with_ai=false: start with the console's Fix with AI switch OFF
+    fix_with_ai_default=_flag("fix_with_ai", "true") != "false",
     env=env,
 )
 

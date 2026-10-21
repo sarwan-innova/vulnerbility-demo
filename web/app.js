@@ -135,6 +135,7 @@ async function selectImage(image) {
   $("fix-model").textContent = data.ai && data.ai.model
     ? `Claude on Amazon Bedrock · ${data.ai.model}`
     : "Rule-based fallback (no Bedrock model configured)";
+  applyFixSwitch();
   if (canFix && src.last_fix_id) {          // resume the latest fix for this image
     current.fixId = src.last_fix_id;
     pollFix();
@@ -175,6 +176,58 @@ async function rescan() {
   } catch (e) { $("scan-status").textContent = " — scan failed: " + e.message; }
   $("scan-btn").disabled = false;
   selectImage(current.image);
+}
+
+/* ---------------- Fix with AI on/off switch (server-side, applies to everyone) ---------------- */
+let features = { fix_with_ai: true };
+
+function renderSwitch() {
+  const on = !!features.fix_with_ai;
+  const sw = $("ai-switch");
+  sw.classList.toggle("off", !on);
+  sw.setAttribute("aria-checked", String(on));
+  $("ai-switch-label").textContent = `Fix with AI: ${on ? "ON" : "OFF"}`;
+  sw.title = (on ? "Click to turn Fix with AI off" : "Click to turn Fix with AI on") +
+    (features.updatedBy ? ` · last changed by ${features.updatedBy} at ${features.updatedAt}` : "");
+  show("ai-switch");
+}
+
+function applyFixSwitch() {
+  const on = !!features.fix_with_ai;
+  $("fix-btn").disabled = !on || !!current.poll;
+  if (!on) {
+    $("fix-status").className = "note off";
+    $("fix-status").textContent = "Fix with AI is turned off" +
+      (features.updatedBy ? ` (by ${features.updatedBy})` : "") +
+      " — use the switch in the header to turn it on.";
+    show("fix-status");
+  } else if ($("fix-status").classList.contains("off")) {
+    show("fix-status", false);
+  }
+  if (!on) $("push-btn").disabled = true;
+}
+
+async function loadFeatures() {
+  try {
+    features = (await api("/settings")).settings;
+    renderSwitch();
+    applyFixSwitch();
+  } catch (e) { /* older API without /settings: no switch */ }
+}
+
+async function toggleFixWithAi() {
+  if (!requireAuth()) return;
+  const next = !features.fix_with_ai;
+  if (!confirm(`Turn Fix with AI ${next ? "ON" : "OFF"} for everyone using this console?`)) return;
+  $("ai-switch").disabled = true;
+  try {
+    features = (await post("/settings", { fix_with_ai: next })).settings;
+  } catch (e) {
+    alert("Could not change the switch: " + e.message);
+  }
+  $("ai-switch").disabled = false;
+  renderSwitch();
+  applyFixSwitch();
 }
 
 /* ---------------- AI fix ---------------- */
@@ -228,7 +281,7 @@ function renderProposal(s) {
   $("fix-diffs").innerHTML = (s.diffs || []).map(d =>
     `<details open class="diff"><summary><code>${esc(d.path)}</code> <span class="muted">${esc(d.reason)}</span></summary>
      <pre>${diffHtml(d.diff)}</pre></details>`).join("");
-  $("push-btn").disabled = !!v.errors.length || s.fix.status !== "READY";
+  $("push-btn").disabled = !!v.errors.length || s.fix.status !== "READY" || !features.fix_with_ai;
   show("fix-result");
 }
 
@@ -269,7 +322,7 @@ async function pollFix() {
     current.poll = setTimeout(pollFix, 2000);
     return;
   }
-  $("fix-btn").disabled = false;
+  $("fix-btn").disabled = !features.fix_with_ai;
   if (f.status === "FAILED") { fixStatus("The fix failed: " + esc(f.error), "fail"); return; }
   show("fix-status", false);
   renderProposal(s);
@@ -297,6 +350,7 @@ async function pushFix() {
 
 /* ---------------- wire up ---------------- */
 $("scan-btn").onclick = rescan;
+$("ai-switch").onclick = toggleFixWithAi;
 $("fix-btn").onclick = startFix;
 $("push-btn").onclick = pushFix;
 
@@ -316,5 +370,5 @@ if (AUTH_ON) {
   $("signout-btn").onclick = () => AUTH.signOut();
 }
 refreshAuthUi();
-if (API_BASE) loadImages();
+if (API_BASE) { loadImages(); loadFeatures(); }
 else $("images-body").innerHTML = '<tr><td colspan="5" class="muted">No API configured — run <code>python local_server.py</code>.</td></tr>';

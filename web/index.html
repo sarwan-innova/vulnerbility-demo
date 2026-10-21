@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Image Remediation Console</title>
-<link rel="stylesheet" href="styles.css?v=5" />
+<link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
 <header>
@@ -13,6 +13,10 @@
   <div class="sub">
     git push → CodeBuild → ECR → scan → ✨ fix with AI → push fix branch + PR → rebuild → re-scan
     <span id="mode-badge" class="badge">…</span>
+    <button id="ai-switch" class="switch hidden" role="switch" aria-checked="true"
+            title="Turn the Fix with AI feature on or off for everyone using this console">
+      <span class="knob"></span><span id="ai-switch-label">Fix with AI: ON</span>
+    </button>
     <span id="auth-area">
       <span id="user-label" class="muted"></span>
       <button id="signin-btn" class="small hidden">Sign in</button>
@@ -82,8 +86,8 @@
   <span class="muted" id="footer-note"></span>
 </footer>
 
-<script src="config.js?v=5"></script>
-<script src="auth.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="auth.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

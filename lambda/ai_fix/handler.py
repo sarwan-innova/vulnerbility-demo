@@ -6,6 +6,9 @@ HTTP API (dispatched on routeKey):
   GET  /fix/{id}                              -> status, proposal, validation, diffs,
                                                  and the rebuilt image's re-scan (before/after)
   POST /fix/{id}/push                         -> commit to fix/<repo>-<id>, open a PR
+  GET  /settings                              -> feature switches ({"fix_with_ai": bool, ...})
+  POST /settings     {"fix_with_ai": bool}    -> turn Fix with AI on/off (signed-in user)
+When Fix with AI is off, POST /fix and POST /fix/{id}/push are refused (403).
 Async worker (Lambda invokes itself with {"fix_worker": id}):
   read the commit from GitHub -> ai_fixer.propose (Claude on Bedrock) -> validate -> store
 
@@ -30,6 +33,8 @@ import wiz_source  # noqa: E402
 
 GITHUB_SECRET_ARN = os.environ.get("GITHUB_SECRET_ARN", "")
 BUILD_CONTEXT = os.environ.get("BUILD_CONTEXT", "")   # app folder inside a bigger repo
+FIX_WITH_AI_DEFAULT = os.environ.get("FIX_WITH_AI_DEFAULT", "true").lower() == "true"
+SWITCH_HISTORY = 20
 CONSOLE_URL = os.environ.get("CONSOLE_URL", "")
 
 _github = None          # local runs inject a mock here
@@ -67,8 +72,36 @@ def _proposal_key(fix_id):
     return f"fixes/{fix_id}/proposal.json"
 
 
+# ---------------------------------------------------------------- feature switch
+def feature_state():
+    s = store.get_settings()
+    return {"fix_with_ai": bool(s.get("fix_with_ai", FIX_WITH_AI_DEFAULT)),
+            "updatedBy": s.get("updatedBy"), "updatedAt": s.get("updatedAt"),
+            "history": s.get("history", [])}
+
+
+def _off():
+    state = feature_state()
+    who = f" by {state['updatedBy']}" if state.get("updatedBy") else ""
+    return _resp(403, {"error": f"Fix with AI is turned off{who}. Turn it on with the "
+                                "switch in the console header.", "settings": state})
+
+
+def set_feature(body, user):
+    value = body.get("fix_with_ai")
+    if not isinstance(value, bool):
+        return _resp(400, {"error": "fix_with_ai must be true or false"})
+    state = feature_state()
+    entry = {"fix_with_ai": value, "by": user or "unknown", "at": _now()}
+    store.put_settings({"fix_with_ai": value, "updatedBy": entry["by"], "updatedAt": entry["at"],
+                        "history": ([entry] + state["history"])[:SWITCH_HISTORY]})
+    return _resp(200, {"settings": feature_state()})
+
+
 # ---------------------------------------------------------------- routes
 def start(image, context, user=None):
+    if not feature_state()["fix_with_ai"]:
+        return _off()
     record = store.get_image(image) if image else None
     if not record or not record.get("commit") or not record.get("github"):
         return _resp(400, {"error": "this image was not built by the CI pipeline from a "
@@ -148,6 +181,8 @@ def status(fix_id):
 
 
 def push(fix_id, user=None):
+    if not feature_state()["fix_with_ai"]:
+        return _off()
     fix = store.get_fix(fix_id)
     if not fix:
         return _resp(404, {"error": "fix not found"})
@@ -215,6 +250,14 @@ def handler(event, context):
         return status(fix_id)
     if route == "POST /fix/{id}/push":
         return push(fix_id, _user(event))
+    if route == "GET /settings":
+        return _resp(200, {"settings": feature_state()})
+    if route == "POST /settings":
+        try:
+            body = json.loads(event.get("body") or "{}")
+        except ValueError:
+            return _resp(400, {"error": "invalid JSON body"})
+        return set_feature(body, _user(event))
     return _resp(404, {"error": f"unknown route {route}"})
 
 

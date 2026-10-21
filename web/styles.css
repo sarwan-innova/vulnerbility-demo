@@ -83,3 +83,10 @@ pre .da{color:var(--green)} pre .dd{color:var(--red)} pre .dh{color:var(--muted)
 .spinner{display:inline-block;width:11px;height:11px;border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px}
 @keyframes spin{to{transform:rotate(360deg)}}
 ul.risks{color:var(--amber)}
+/* Fix with AI on/off switch */
+button.switch{display:inline-flex;align-items:center;gap:8px;margin-left:10px;padding:4px 12px 4px 4px;border-radius:999px;font-size:12px;font-weight:600;background:#0f3d2e;border:1px solid var(--green);color:var(--green)}
+button.switch .knob{width:18px;height:18px;border-radius:50%;background:var(--green);transition:transform .15s}
+button.switch.off{background:#24303f;border-color:var(--line);color:var(--muted)}
+button.switch.off .knob{background:var(--muted)}
+button.switch:disabled{opacity:.6;cursor:wait}
+.note.off{background:#24303f;border:1px solid var(--line);color:var(--muted)}

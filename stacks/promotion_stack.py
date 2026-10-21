@@ -152,7 +152,8 @@ class PromotionStack(Stack):
                  wiz_mock: bool = True, mock: bool = True, agentic: bool = False,
                  bedrock_model_id: str = "", bedrock_guardrail_id: str = "",
                  repo_map: dict = None, env_map: dict = None,
-                 secure: bool = False, ci_loop: dict = None, **kwargs):
+                 secure: bool = False, ci_loop: dict = None,
+                 fix_with_ai_default: bool = True, **kwargs):
         super().__init__(scope, cid, **kwargs)
         self.user_pool = None
         self.user_pool_client = None
@@ -173,6 +174,8 @@ class PromotionStack(Stack):
             "AGENTIC": "true" if agentic else "false",
             "BEDROCK_MODEL_ID": bedrock_model_id or "",
             "BEDROCK_GUARDRAIL_ID": bedrock_guardrail_id or "",
+            # starting state of the console's Fix with AI switch (until someone flips it)
+            "FIX_WITH_AI_DEFAULT": "true" if fix_with_ai_default else "false",
         }
         if report_bucket is not None:
             env["REPORT_BUCKET"] = report_bucket.bucket_name
@@ -507,6 +510,9 @@ class PromotionStack(Stack):
             route("/fix", apigw.HttpMethod.POST, ai_fix_fn, "FixInt", authorizer=jwt_authorizer)
             route("/fix/{id}", apigw.HttpMethod.GET, ai_fix_fn, "FixStatusInt")
             route("/fix/{id}/push", apigw.HttpMethod.POST, ai_fix_fn, "FixPushInt",
+                  authorizer=jwt_authorizer)
+            route("/settings", apigw.HttpMethod.GET, ai_fix_fn, "SettingsInt")
+            route("/settings", apigw.HttpMethod.POST, ai_fix_fn, "SettingsSetInt",
                   authorizer=jwt_authorizer)
         route("/approve", apigw.HttpMethod.POST, approval_fn, "ApproveInt",
               authorizer=jwt_authorizer)

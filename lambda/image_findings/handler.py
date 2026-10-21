@@ -56,7 +56,9 @@ def handler(event, context):
         "latest_scan": ({k: scan.get(k) for k in ("id", "status", "finishedAt", "summary", "mode")}
                         if scan else None),
         "source": ({k: record.get(k) for k in SOURCE_FIELDS} if record else None),
-        "ai": {"model": ai_fixer.MODEL_ID or None},
+        "ai": {"model": ai_fixer.MODEL_ID or None,
+               "enabled": bool(store.get_settings().get(
+                   "fix_with_ai", os.environ.get("FIX_WITH_AI_DEFAULT", "true").lower() == "true"))},
     })
 
 

@@ -154,6 +154,17 @@ def get_policy(default):
     return _undecimal(item["policy"]) if item and "policy" in item else default
 
 
+def get_settings():
+    """Console feature switches  PK=SETTINGS SK=FEATURES (e.g. fix_with_ai, who changed it)."""
+    item = _table().get_item(Key={"PK": "SETTINGS", "SK": "FEATURES"}).get("Item")
+    return _undecimal(item) if item else {}
+
+
+def put_settings(settings):
+    _table().put_item(Item=_clean({**settings, "PK": "SETTINGS", "SK": "FEATURES",
+                                   "entity": "settings"}))
+
+
 def put_policy(policy):
     t = _table()
     t.put_item(Item=_clean({"PK": "POLICY", "SK": "ACTIVE", "entity": "policy",
